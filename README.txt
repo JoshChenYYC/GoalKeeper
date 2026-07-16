@@ -1,3 +1,7 @@
+Planning note: the current agreed domain language is in CONTEXT.md and the
+detailed pre-implementation behavior plan is in docs/application-logic.md.
+Those documents supersede examples in this original vision when they differ.
+
 I think we've refined the idea quite a bit. If I had to describe the project now, this is how I'd summarize it:
 
 ---
@@ -234,51 +238,3 @@ Every feature should answer this question:
 If the answer is no, it's probably unnecessary for the hackathon.
 
 I think this is a much stronger framing than where you started. Originally it felt like "an AI that looks at screenshots." Now it feels like **an AI agent that reasons about human behavior over time using visual evidence**, which is a much more compelling story for judges.
-
----
-
-# Recording and Perception Prototype
-
-The current implementation covers only the input boundary:
-
-1. capture one webcam frame every 10 seconds
-2. encode and save that frame as a JPEG
-3. send the same JPEG to the OpenAI Responses API
-4. append the structured observation returned by the API to
-   `observations.jsonl`
-
-It does not decide whether the user is on task and does not generate a
-reminder. The reasoning agent can consume the JSONL stream independently.
-
-## Setup
-
-```powershell
-python -m pip install -r requirements.txt
-$env:OPENAI_API_KEY="your-api-key"
-```
-
-## Run a session
-
-```powershell
-python capture.py
-```
-
-Useful options:
-
-```powershell
-# Capture every 5 seconds for a 30-minute session.
-python capture.py --interval 5 --duration 30
-
-# Use a different camera or model.
-python capture.py --camera 1 --model gpt-5.6-luna
-
-# Verify the API path with an existing JPEG without opening the webcam.
-python capture.py --image captures/example.jpg
-```
-
-Each session is written under `captures/session-YYYYMMDD-HHMMSS/`. Its
-`observations.jsonl` contains one record per successful API response:
-
-```json
-{"captured_at":"2026-07-15T20:30:00.000-07:00","image":"20260715-203000-000000.jpg","observation":{"user_present":true,"user_state":"sitting at desk","objects":["laptop","notebook"],"activity":"typing on laptop","possible_distractions":[],"confidence":0.91}}
-```
