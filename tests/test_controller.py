@@ -11,16 +11,19 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import capture
+from artifacts import ArtifactOwnershipError
 from controller import FocusSessionController, InvalidReasoningProposal
 from domain import (
     Deviation,
     DeviationProfile,
     Goal,
+    ReasoningMode,
     ReasoningProposal,
     ScheduledBreak,
     SessionState,
     SnapshotStatus,
 )
+from perception import OpenAIPerceptionAdapter
 from storage import ActiveSessionError, SQLiteRepository
 
 
@@ -106,6 +109,26 @@ class ControllerTestCase(unittest.TestCase):
         )
         return goal, contract, session
 
+    def persist_observation(self, session, sequence=1):
+        snapshot = self.controller.record_snapshot(
+            session.id,
+            sequence=sequence,
+            captured_at=self.clock.now(),
+            image=f"{sequence}.jpg",
+        )
+        return self.controller.persist_observation(snapshot.id, OBSERVATION)
+
+    @staticmethod
+    def intervention_payload(observation, deviation_id):
+        return {
+            "deviation_id": deviation_id,
+            "evidence_start_observation_id": observation.id,
+            "evidence_latest_observation_id": observation.id,
+            "key_observation_ids": [observation.id],
+            "contradictory_or_indeterminate_observation_ids": [],
+            "rationale": "The cited visible pattern may conflict with the contract.",
+        }
+
     def test_domain_models_validate_and_are_immutable(self):
         goal = Goal(title="  Study  ", created_at=self.clock.now())
         self.assertEqual(goal.title, "Study")
@@ -163,11 +186,18 @@ class ControllerTestCase(unittest.TestCase):
 
         stored = self.repository.get_session(first.id)
         self.assertEqual(stored.contract.goal_title, "Write the paper")
+        failed_session_dir = self.root / "failed-second-session"
         with self.assertRaises(ActiveSessionError):
-            self.controller.start_monitoring(second_contract)
+            self.controller.start_monitoring(
+                second_contract, session_dir=failed_session_dir
+            )
+        self.assertFalse(failed_session_dir.exists())
 
     def test_active_goal_is_locked_and_confirmed_delete_cascades(self):
         goal, _, session = self.start_session()
+        session_dir = Path(session.session_dir)
+        owned_image = session_dir / "owned.jpg"
+        owned_image.write_bytes(b"jpeg")
         with self.assertRaises(ActiveSessionError):
             self.controller.update_goal(goal.id, title="Changed")
         with self.assertRaisesRegex(ValueError, "confirmation"):
@@ -177,9 +207,63 @@ class ControllerTestCase(unittest.TestCase):
 
         self.controller.end_early(session.id)
         self.controller.delete_goal(goal.id, confirmed=True)
+        self.assertFalse(session_dir.exists())
         self.assertEqual(self.repository.count_rows("goals"), 0)
         self.assertEqual(self.repository.count_rows("focus_sessions"), 0)
         self.assertEqual(self.repository.count_rows("session_contracts"), 0)
+
+    def test_confirmed_session_delete_removes_artifacts_and_preserves_goal(self):
+        goal, _, session = self.start_session()
+        session_dir = Path(session.session_dir)
+        (session_dir / "snapshot.jpg").write_bytes(b"jpeg")
+        self.controller.end_early(session.id)
+
+        with self.assertRaisesRegex(ValueError, "confirmation"):
+            self.controller.delete_session(session.id, confirmed=False)
+        self.controller.delete_session(session.id, confirmed=True)
+
+        self.assertFalse(session_dir.exists())
+        self.assertEqual(self.repository.get_goal(goal.id), goal)
+        self.assertEqual(self.repository.count_rows("focus_sessions"), 0)
+        self.assertEqual(self.repository.count_rows("session_contracts"), 0)
+
+    def test_artifact_deletion_refuses_unowned_directory_before_metadata_delete(self):
+        goal, _, session = self.start_session()
+        session_dir = Path(session.session_dir)
+        self.controller.end_early(session.id)
+        (session_dir / ".goalkeeper-session.json").unlink()
+
+        with self.assertRaises(ArtifactOwnershipError):
+            self.controller.delete_session(session.id, confirmed=True)
+
+        self.assertEqual(self.repository.get_session(session.id).goal_id, goal.id)
+        self.assertTrue(session_dir.exists())
+
+    def test_monitoring_refuses_to_claim_a_nonempty_unowned_directory(self):
+        _, contract = self.make_contract()
+        unowned = self.root / "documents"
+        unowned.mkdir()
+        existing = unowned / "keep.txt"
+        existing.write_text("keep", encoding="utf-8")
+
+        with self.assertRaisesRegex(ArtifactOwnershipError, "nonempty unowned"):
+            self.controller.start_monitoring(contract, session_dir=unowned)
+
+        self.assertEqual(existing.read_text(encoding="utf-8"), "keep")
+        self.assertEqual(self.repository.count_rows("focus_sessions"), 0)
+
+    def test_monitoring_claims_a_confirmed_capture_directory(self):
+        _, contract = self.make_contract()
+        capture_dir = self.root / "session-20260716-120000"
+        capture_dir.mkdir()
+        (capture_dir / "preflight.jpg").write_bytes(b"jpeg")
+        (capture_dir / "preflight.json").write_text("{}", encoding="utf-8")
+
+        session = self.controller.start_monitoring(contract, session_dir=capture_dir)
+
+        marker = capture_dir / ".goalkeeper-session.json"
+        self.assertTrue(marker.is_file())
+        self.assertIn(session.id, marker.read_text(encoding="utf-8"))
 
     def test_timer_crosses_break_boundaries_without_counting_break_time(self):
         _, _, session = self.start_session(
@@ -222,6 +306,7 @@ class ControllerTestCase(unittest.TestCase):
         self.assertEqual(session.state, SessionState.FULFILLED)
         self.assertEqual(session.accumulated_focus_seconds, 30)
         self.assertEqual(session.version, 4)
+        self.assertNotIn(session.id, self.controller._runtime)
 
     def test_manual_end_and_explicit_goal_completion_are_final(self):
         _, _, session = self.start_session()
@@ -343,6 +428,197 @@ class ControllerTestCase(unittest.TestCase):
         with self.assertRaises(InvalidReasoningProposal):
             self.controller.evaluate_observation(observation)
 
+    def test_reasoning_rejects_unknown_kind_and_unlisted_profile_only_deviation(self):
+        deviation = Deviation("Sustained attention to a phone")
+        profile = DeviationProfile(
+            deviations=(deviation,),
+            created_at=self.clock.now(),
+            updated_at=self.clock.now(),
+        )
+        goal = self.controller.create_goal("Study")
+        contract = self.controller.confirm_contract(
+            self.controller.prepare_contract(
+                goal.id,
+                target_focus_seconds=60,
+                deviation_profile=profile,
+            )
+        )
+        session = self.controller.start_monitoring(contract)
+        observation = self.persist_observation(session)
+
+        class ProposalReasoner:
+            def __init__(inner_self, kind, payload):
+                inner_self.kind = kind
+                inner_self.payload = payload
+
+            def evaluate(inner_self, request):
+                return ReasoningProposal(
+                    session_id=request.session_id,
+                    session_version=request.session_version,
+                    observation_id=request.observation.id,
+                    kind=inner_self.kind,
+                    payload=inner_self.payload,
+                )
+
+        self.controller.reasoning_port = ProposalReasoner("invented_action", {})
+        with self.assertRaisesRegex(InvalidReasoningProposal, "unsupported"):
+            self.controller.evaluate_observation(observation)
+
+        self.controller.reasoning_port = ProposalReasoner(
+            "begin_recovery_check_in",
+            self.intervention_payload(observation, "unlisted"),
+        )
+        with self.assertRaisesRegex(InvalidReasoningProposal, "Profile Only"):
+            self.controller.evaluate_observation(observation)
+        self.assertEqual(
+            self.controller.get_session(session.id).state, SessionState.FOCUSING
+        )
+
+    def test_valid_listed_intervention_is_admitted_atomically(self):
+        deviation = Deviation("Sustained attention to a phone")
+        profile = DeviationProfile(
+            deviations=(deviation,),
+            created_at=self.clock.now(),
+            updated_at=self.clock.now(),
+        )
+        goal = self.controller.create_goal("Study")
+        contract = self.controller.confirm_contract(
+            self.controller.prepare_contract(
+                goal.id,
+                target_focus_seconds=60,
+                deviation_profile=profile,
+            )
+        )
+        session = self.controller.start_monitoring(contract)
+        observation = self.persist_observation(session)
+        payload = self.intervention_payload(observation, deviation.id)
+
+        class InterventionReasoner:
+            def evaluate(_self, request):
+                return ReasoningProposal(
+                    session_id=request.session_id,
+                    session_version=request.session_version,
+                    observation_id=request.observation.id,
+                    kind="begin_recovery_check_in",
+                    payload=payload,
+                )
+
+        self.controller.reasoning_port = InterventionReasoner()
+        valid_payload = payload
+        payload = {**payload, "key_observation_ids": ["missing-observation"]}
+        with self.assertRaisesRegex(InvalidReasoningProposal, "does not exist"):
+            self.controller.evaluate_observation(observation)
+
+        payload = valid_payload
+        proposal = self.controller.evaluate_observation(observation)
+
+        self.assertEqual(proposal.kind, "begin_recovery_check_in")
+        stored = self.controller.get_session(session.id)
+        self.assertEqual(stored.state, SessionState.RECOVERY_CHECK_IN)
+        self.assertEqual(stored.version, session.version + 1)
+
+    def test_exploratory_mode_admits_grounded_unlisted_intervention(self):
+        goal = self.controller.create_goal("Study")
+        contract = self.controller.confirm_contract(
+            self.controller.prepare_contract(
+                goal.id,
+                target_focus_seconds=60,
+                reasoning_mode=ReasoningMode.EXPLORATORY,
+            )
+        )
+        session = self.controller.start_monitoring(contract)
+        observation = self.persist_observation(session)
+        payload = self.intervention_payload(observation, "unlisted")
+
+        class InterventionReasoner:
+            def evaluate(_self, request):
+                return ReasoningProposal(
+                    session_id=request.session_id,
+                    session_version=request.session_version,
+                    observation_id=request.observation.id,
+                    kind="begin_recovery_check_in",
+                    payload=payload,
+                )
+
+        self.controller.reasoning_port = InterventionReasoner()
+        self.controller.evaluate_observation(observation)
+
+        self.assertEqual(
+            self.controller.get_session(session.id).state,
+            SessionState.RECOVERY_CHECK_IN,
+        )
+
+    def test_reasoning_recording_holds_controller_lock_against_state_changes(self):
+        entered_append = threading.Event()
+        release_append = threading.Event()
+        end_finished = threading.Event()
+        reasoner = RecordingReasoner()
+        self.controller.reasoning_port = reasoner
+        _, _, session = self.start_session()
+        observation = self.persist_observation(session)
+        original_append = self.repository.append_session_event
+
+        def blocking_append(*args, **kwargs):
+            entered_append.set()
+            self.assertTrue(release_append.wait(timeout=2))
+            return original_append(*args, **kwargs)
+
+        self.repository.append_session_event = blocking_append
+        evaluation = threading.Thread(
+            target=self.controller.evaluate_observation, args=(observation,)
+        )
+
+        def end_session():
+            self.controller.end_early(session.id)
+            end_finished.set()
+
+        ending = threading.Thread(target=end_session)
+        evaluation.start()
+        self.assertTrue(entered_append.wait(timeout=2))
+        ending.start()
+        self.assertFalse(end_finished.wait(timeout=0.05))
+        release_append.set()
+        evaluation.join(timeout=2)
+        ending.join(timeout=2)
+
+        self.assertFalse(evaluation.is_alive())
+        self.assertFalse(ending.is_alive())
+        self.assertTrue(end_finished.is_set())
+        self.assertEqual(
+            self.controller.get_session(session.id).state, SessionState.ENDED_EARLY
+        )
+
+    def test_reasoning_rejects_unknown_actions_and_malformed_payloads(self):
+        class InvalidReasoner:
+            def __init__(inner_self):
+                inner_self.kind = "invented_action"
+
+            def evaluate(inner_self, request):
+                return ReasoningProposal(
+                    session_id=request.session_id,
+                    session_version=request.session_version,
+                    observation_id=request.observation.id,
+                    kind=inner_self.kind,
+                )
+
+        reasoner = InvalidReasoner()
+        self.controller.reasoning_port = reasoner
+        _, _, session = self.start_session()
+        snapshot = self.controller.record_snapshot(
+            session.id,
+            sequence=1,
+            captured_at=self.clock.now(),
+            image="one.jpg",
+        )
+        observation = self.controller.persist_observation(snapshot.id, OBSERVATION)
+
+        with self.assertRaisesRegex(InvalidReasoningProposal, "unsupported"):
+            self.controller.evaluate_observation(observation)
+
+        reasoner.kind = "begin_recovery_check_in"
+        with self.assertRaisesRegex(InvalidReasoningProposal, "missing fields"):
+            self.controller.evaluate_observation(observation)
+
     def test_repository_handles_snapshot_writes_from_multiple_threads(self):
         _, _, session = self.start_session()
 
@@ -429,12 +705,12 @@ class ControllerTestCase(unittest.TestCase):
         worker = threading.Thread(
             target=capture.upload_snapshots,
             kwargs={
-                "client": client,
+                "perception": OpenAIPerceptionAdapter(
+                    client, model="test-model", detail="low"
+                ),
                 "buffer": buffer,
                 "observation_log": observation_log,
                 "event_log": event_log,
-                "model": "test-model",
-                "detail": "low",
                 "stats": stats,
                 "controller": self.controller,
             },

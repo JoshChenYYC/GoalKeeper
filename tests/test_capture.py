@@ -12,6 +12,8 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import capture
+import camera_adapter
+from perception import OpenAIPerceptionAdapter
 
 
 SAMPLE_OBSERVATION = {
@@ -32,6 +34,10 @@ SAMPLE_OBSERVATION = {
 
 def response_with_observation():
     return SimpleNamespace(output_text=json.dumps(SAMPLE_OBSERVATION))
+
+
+def perception_adapter(client):
+    return OpenAIPerceptionAdapter(client, model="test-model", detail="low")
 
 
 def snapshot(sequence: int) -> capture.Snapshot:
@@ -71,7 +77,52 @@ class FakeCamera:
         self.released = True
 
 
+class FakePreview:
+    def __init__(self, keys=(), *, encoded=b"setup jpeg"):
+        self.keys = iter(keys)
+        self.encoded = encoded
+        self.opened = False
+        self.closed = False
+
+    def open(self):
+        self.opened = True
+
+    def draw_status(self, _frame, _message, *, color=(255, 255, 255)):
+        pass
+
+    def wait_key(self, _milliseconds):
+        return next(self.keys, 1)
+
+    def encode_jpeg(self, _frame, _quality):
+        return self.encoded
+
+    def close(self):
+        self.closed = True
+
+
 class CaptureTests(unittest.TestCase):
+    def test_opencv_camera_adapter_warms_and_releases_camera(self):
+        raw_camera = Mock()
+        raw_camera.isOpened.return_value = True
+        raw_camera.read.return_value = (True, object())
+        with patch("camera_adapter.cv2.VideoCapture", return_value=raw_camera):
+            camera = camera_adapter.open_camera(2)
+
+        self.assertEqual(raw_camera.read.call_count, camera_adapter.WARMUP_FRAMES)
+        self.assertTrue(camera.read()[0])
+        camera.release()
+        raw_camera.release.assert_called_once_with()
+
+    def test_opencv_camera_adapter_releases_failed_open(self):
+        raw_camera = Mock()
+        raw_camera.isOpened.return_value = False
+        with (
+            patch("camera_adapter.cv2.VideoCapture", return_value=raw_camera),
+            self.assertRaisesRegex(RuntimeError, "could not open camera"),
+        ):
+            camera_adapter.open_camera(2)
+        raw_camera.release.assert_called_once_with()
+
     def test_jpeg_data_url_round_trips_bytes(self):
         jpeg = b"\xff\xd8test-jpeg\xff\xd9"
 
@@ -85,12 +136,7 @@ class CaptureTests(unittest.TestCase):
         client = Mock()
         client.responses.create.return_value = response_with_observation()
 
-        result = capture.observe_snapshot(
-            client,
-            jpeg=b"jpeg bytes",
-            model="test-model",
-            detail="low",
-        )
+        result = perception_adapter(client).observe(b"jpeg bytes")
 
         self.assertEqual(result, SAMPLE_OBSERVATION)
         request = client.responses.create.call_args.kwargs
@@ -117,13 +163,11 @@ class CaptureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             observation_log = capture.JsonlLog(Path(directory) / "observations.jsonl")
             record = capture.process_jpeg(
-                client,
+                perception_adapter(client),
                 sequence=7,
                 jpeg=b"jpeg bytes",
                 captured_at=captured_at,
                 image_name="snapshot.jpg",
-                model="test-model",
-                detail="low",
                 observation_log=observation_log,
             )
             stored = read_jsonl(observation_log.path)[0]
@@ -169,52 +213,42 @@ class CaptureTests(unittest.TestCase):
 
     def test_preview_space_captures_and_escape_cancels(self):
         camera = FakeCamera()
-        with (
-            patch("capture.draw_preflight_status"),
-            patch("capture.encode_jpeg", return_value=b"setup jpeg"),
-            patch("capture.cv2.waitKey", return_value=32),
-            redirect_stdout(io.StringIO()),
-        ):
-            setup = capture.capture_setup_frame(camera, 85)
+        with redirect_stdout(io.StringIO()):
+            setup = capture.capture_setup_frame(
+                camera, 85, preview=FakePreview([32])
+            )
 
         self.assertEqual(setup[1], b"setup jpeg")
 
-        with (
-            patch("capture.draw_preflight_status"),
-            patch("capture.cv2.waitKey", return_value=27),
-            redirect_stdout(io.StringIO()),
-        ):
-            self.assertIsNone(capture.capture_setup_frame(camera, 85))
+        with redirect_stdout(io.StringIO()):
+            self.assertIsNone(
+                capture.capture_setup_frame(camera, 85, preview=FakePreview([27]))
+            )
 
     def test_preflight_retries_rejected_frame_then_confirms_valid_frame(self):
-        client = Mock()
-        camera = FakeCamera()
         rejected = {**SAMPLE_OBSERVATION, "people_count": 2}
+        perception = Mock()
+        perception.observe.side_effect = [rejected, SAMPLE_OBSERVATION]
+        camera = FakeCamera()
         setup = (
             datetime(2026, 7, 15, 20, 29, tzinfo=timezone.utc),
             b"setup jpeg",
             object(),
         )
-        args = SimpleNamespace(jpeg_quality=85, model="test-model", detail="low")
+        args = SimpleNamespace(jpeg_quality=85)
+        preview = FakePreview()
 
         with (
-            patch("capture.cv2.namedWindow"),
-            patch("capture.cv2.destroyWindow"),
-            patch("capture.cv2.waitKey", return_value=1),
-            patch("capture.draw_preflight_status"),
             patch("capture.capture_setup_frame", side_effect=[setup, setup]),
-            patch(
-                "capture.observe_snapshot",
-                side_effect=[rejected, SAMPLE_OBSERVATION],
-            ),
             redirect_stdout(io.StringIO()),
             redirect_stderr(io.StringIO()),
         ):
             result = capture.run_camera_preflight(
-                client,
+                perception,
                 camera,
                 args,
                 input_func=lambda _prompt: "y",
+                preview=preview,
             )
 
         self.assertIsNotNone(result)
@@ -222,7 +256,8 @@ class CaptureTests(unittest.TestCase):
         self.assertEqual(result.observation, SAMPLE_OBSERVATION)
 
     def test_user_can_retry_an_accepted_preflight_frame(self):
-        client = Mock()
+        perception = Mock()
+        perception.observe.return_value = SAMPLE_OBSERVATION
         camera = FakeCamera()
         setup = (
             datetime(2026, 7, 15, 20, 29, tzinfo=timezone.utc),
@@ -230,22 +265,19 @@ class CaptureTests(unittest.TestCase):
             object(),
         )
         choices = iter(["r", "y"])
-        args = SimpleNamespace(jpeg_quality=85, model="test-model", detail="low")
+        args = SimpleNamespace(jpeg_quality=85)
+        preview = FakePreview()
 
         with (
-            patch("capture.cv2.namedWindow"),
-            patch("capture.cv2.destroyWindow"),
-            patch("capture.cv2.waitKey", return_value=1),
-            patch("capture.draw_preflight_status"),
             patch("capture.capture_setup_frame", side_effect=[setup, setup]),
-            patch("capture.observe_snapshot", return_value=SAMPLE_OBSERVATION),
             redirect_stdout(io.StringIO()),
         ):
             result = capture.run_camera_preflight(
-                client,
+                perception,
                 camera,
                 args,
                 input_func=lambda _prompt: next(choices),
+                preview=preview,
             )
 
         self.assertIsNotNone(result)
@@ -313,12 +345,10 @@ class CaptureTests(unittest.TestCase):
             worker = threading.Thread(
                 target=capture.upload_snapshots,
                 kwargs={
-                    "client": client,
+                    "perception": perception_adapter(client),
                     "buffer": buffer,
                     "observation_log": observation_log,
                     "event_log": event_log,
-                    "model": "test-model",
-                    "detail": "low",
                     "stats": stats,
                 },
             )
@@ -369,12 +399,10 @@ class CaptureTests(unittest.TestCase):
             worker = threading.Thread(
                 target=capture.upload_snapshots,
                 kwargs={
-                    "client": client,
+                    "perception": perception_adapter(client),
                     "buffer": buffer,
                     "observation_log": observation_log,
                     "event_log": event_log,
-                    "model": "test-model",
-                    "detail": "low",
                     "stats": stats,
                 },
             )
@@ -433,7 +461,7 @@ class CaptureTests(unittest.TestCase):
                 redirect_stdout(io.StringIO()),
                 redirect_stderr(io.StringIO()),
             ):
-                capture.run_capture_session(client, args)
+                capture.run_capture_session(perception_adapter(client), args)
 
             session_dir = next(Path(directory).glob("session-*"))
             images = [
@@ -464,7 +492,7 @@ class CaptureTests(unittest.TestCase):
                 patch("capture.run_camera_preflight", return_value=None),
                 redirect_stdout(io.StringIO()),
             ):
-                started = capture.run_capture_session(client, args)
+                started = capture.run_capture_session(perception_adapter(client), args)
 
             self.assertFalse(started)
             self.assertTrue(camera.released)
@@ -483,7 +511,7 @@ class CaptureTests(unittest.TestCase):
                 ),
             ):
                 with self.assertRaisesRegex(RuntimeError, "preview failed"):
-                    capture.run_capture_session(client, args)
+                    capture.run_capture_session(perception_adapter(client), args)
 
             self.assertTrue(camera.released)
             self.assertEqual(list(Path(directory).glob("session-*")), [])
