@@ -44,6 +44,36 @@ camera or running interactive preflight:
 python capture.py --image path\to\snapshot.jpg
 ```
 
+## Session controller foundation
+
+The controller layer is available as a programmatic integration point for the
+future Goal/contract setup interface and Reasoning Agent:
+
+* `domain.py` contains immutable Goal, contract, session, snapshot, observation,
+  and reasoning-boundary types.
+* `storage.py` provides the thread-safe SQLite authoritative store.
+* `controller.py` owns Focus Session transitions, the active-focus timer,
+  Scheduled Breaks, observation eligibility, and proposal validation.
+
+The current `python capture.py` command intentionally remains a recording-only
+prototype until the Goal and Session Contract setup interface is implemented.
+That future entry point creates and confirms a contract, then calls
+`run_capture_session(..., controller=controller, contract=contract)`. When a
+Reasoning Agent is supplied to the controller, perception and reasoning run as
+one serialized cycle behind the same newest-pending-frame buffer.
+
+SQLite retains authoritative Goals, immutable contract snapshots, Focus Session
+state, snapshots, observations, and state-transition events. Session JPEG and
+JSONL files remain inspectable artifacts. Observations captured during Scheduled
+Breaks and technical failures are persisted for audit but are never included in
+Reasoning Agent evidence.
+
+Run the automated suite with:
+
+```powershell
+python -m unittest discover -s tests -v
+```
+
 I think we've refined the idea quite a bit. If I had to describe the project now, this is how I'd summarize it:
 
 ---

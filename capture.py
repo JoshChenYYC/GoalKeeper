@@ -1,8 +1,8 @@
-"""Capture periodic webcam snapshots and send them to the perception API.
+"""Capture snapshots and run the optional controller processing cycle.
 
-This module deliberately stops at perception. It captures a JPEG, sends the
-image to the OpenAI Responses API, and appends the returned observation to a
-JSONL file for the reasoning component to consume later.
+Standalone use captures a JPEG, sends it to perception, and appends the neutral
+observation to JSONL. A configured FocusSessionController additionally persists
+authoritative state and invokes its typed ReasoningPort in the same worker.
 """
 
 from __future__ import annotations
@@ -21,6 +21,9 @@ from typing import Any, Callable
 
 import cv2
 from openai import OpenAI
+
+from controller import FocusSessionController
+from domain import SessionContract, SessionState, SnapshotStatus
 
 
 DEFAULT_INTERVAL_SECONDS = 10.0
@@ -124,6 +127,10 @@ class Snapshot:
     captured_at: datetime
     image_name: str
     jpeg: bytes
+    controller_snapshot_id: str | None = None
+    session_id: str | None = None
+    session_version: int | None = None
+    captured_state: SessionState | None = None
 
 
 @dataclass(frozen=True)
@@ -588,8 +595,9 @@ def upload_snapshots(
     model: str,
     detail: str,
     stats: UploadStats,
+    controller: FocusSessionController | None = None,
 ) -> None:
-    """Process snapshots serially until the closed buffer has been drained."""
+    """Process complete perception/reasoning cycles until the buffer is drained."""
     while True:
         snapshot = buffer.take()
         if snapshot is None:
@@ -604,10 +612,22 @@ def upload_snapshots(
                 image_name=snapshot.image_name,
                 model=model,
                 detail=detail,
-                observation_log=observation_log,
             )
         except Exception as error:
             stats.api_errors += 1
+            if controller is not None and snapshot.controller_snapshot_id is not None:
+                try:
+                    controller.finalize_snapshot(
+                        snapshot.controller_snapshot_id,
+                        SnapshotStatus.API_ERROR,
+                        error=str(error),
+                    )
+                except Exception as controller_error:
+                    print(
+                        f"controller could not persist API failure: {controller_error}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
             event_log.append(
                 make_capture_event(snapshot, "api_error", error=str(error))
             )
@@ -619,9 +639,58 @@ def upload_snapshots(
             )
             continue
 
+        controlled_observation = None
+        if controller is not None and snapshot.controller_snapshot_id is not None:
+            try:
+                controlled_observation = controller.persist_observation(
+                    snapshot.controller_snapshot_id,
+                    record["observation"],
+                )
+                record.update(
+                    {
+                        "session_id": controlled_observation.session_id,
+                        "session_version": controlled_observation.session_version,
+                        "snapshot_id": controlled_observation.snapshot_id,
+                        "observation_id": controlled_observation.id,
+                        "processed_at": controlled_observation.processed_at.isoformat(
+                            timespec="milliseconds"
+                        ),
+                        "captured_state": controlled_observation.captured_state.value,
+                        "reasoning_eligible": controlled_observation.reasoning_eligible,
+                    }
+                )
+            except Exception as controller_error:
+                print(
+                    f"controller could not persist observation: {controller_error}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+
+        observation_log.append(record)
         stats.observed += 1
         event_log.append(make_capture_event(snapshot, "observed"))
         print_observation(record)
+
+        if controlled_observation is not None:
+            try:
+                controller.evaluate_observation(controlled_observation)
+            except Exception as reasoning_error:
+                try:
+                    controller.record_reasoning_error(
+                        controlled_observation, reasoning_error
+                    )
+                except Exception as controller_error:
+                    print(
+                        "controller could not persist reasoning failure: "
+                        f"{controller_error}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                print(
+                    f"[{record['captured_at']}] reasoning error: {reasoning_error}",
+                    file=sys.stderr,
+                    flush=True,
+                )
 
 
 def run_image_smoke_test(client: OpenAI, args: argparse.Namespace) -> None:
@@ -643,7 +712,15 @@ def run_image_smoke_test(client: OpenAI, args: argparse.Namespace) -> None:
     print(json.dumps(record, indent=2, ensure_ascii=False))
 
 
-def run_capture_session(client: OpenAI, args: argparse.Namespace) -> bool:
+def run_capture_session(
+    client: OpenAI,
+    args: argparse.Namespace,
+    *,
+    controller: FocusSessionController | None = None,
+    contract: SessionContract | None = None,
+) -> bool:
+    if (controller is None) != (contract is None):
+        raise ValueError("controller and contract must be provided together")
     camera = open_camera(args.camera)
     buffer: LatestSnapshotBuffer | None = None
     uploader: threading.Thread | None = None
@@ -652,6 +729,7 @@ def run_capture_session(client: OpenAI, args: argparse.Namespace) -> bool:
     captured = 0
     superseded = 0
     session_dir: Path | None = None
+    controller_session = None
 
     try:
         preflight = run_camera_preflight(client, camera, args)
@@ -663,6 +741,12 @@ def run_capture_session(client: OpenAI, args: argparse.Namespace) -> bool:
         session_dir = args.output_dir / f"session-{started_at:%Y%m%d-%H%M%S}"
         session_dir.mkdir(parents=True, exist_ok=False)
         write_preflight_artifacts(session_dir, preflight)
+        if controller is not None and contract is not None:
+            controller_session = controller.start_monitoring(
+                contract,
+                session_dir=session_dir,
+                started_at=started_at,
+            )
         observation_log = JsonlLog(session_dir / "observations.jsonl")
         event_log = JsonlLog(session_dir / "capture_events.jsonl")
 
@@ -677,6 +761,7 @@ def run_capture_session(client: OpenAI, args: argparse.Namespace) -> bool:
                 "model": args.model,
                 "detail": args.detail,
                 "stats": upload_stats,
+                "controller": controller,
             },
             name="perception-uploader",
         )
@@ -684,7 +769,7 @@ def run_capture_session(client: OpenAI, args: argparse.Namespace) -> bool:
 
         deadline = (
             time.monotonic() + args.duration * 60
-            if args.duration is not None
+            if controller_session is None and args.duration is not None
             else None
         )
         next_capture = time.monotonic()
@@ -695,6 +780,10 @@ def run_capture_session(client: OpenAI, args: argparse.Namespace) -> bool:
         )
 
         while deadline is None or time.monotonic() < deadline:
+            if controller is not None and controller_session is not None:
+                current_session = controller.advance_time(controller_session.id)
+                if not current_session.state.is_active:
+                    break
             wait_seconds = next_capture - time.monotonic()
             if wait_seconds > 0:
                 if deadline is not None:
@@ -703,6 +792,10 @@ def run_capture_session(client: OpenAI, args: argparse.Namespace) -> bool:
                     time.sleep(wait_seconds)
             if deadline is not None and time.monotonic() >= deadline:
                 break
+            if controller is not None and controller_session is not None:
+                current_session = controller.advance_time(controller_session.id)
+                if not current_session.state.is_active:
+                    break
 
             success, frame = camera.read()
             captured_at = datetime.now().astimezone()
@@ -722,15 +815,39 @@ def run_capture_session(client: OpenAI, args: argparse.Namespace) -> bool:
             image_name = f"{captured_at:%Y%m%d-%H%M%S-%f}.jpg"
             (session_dir / image_name).write_bytes(jpeg)
             captured += 1
+            controlled_snapshot = None
+            if controller is not None and controller_session is not None:
+                controlled_snapshot = controller.record_snapshot(
+                    controller_session.id,
+                    sequence=captured,
+                    captured_at=captured_at,
+                    image=image_name,
+                )
             snapshot = Snapshot(
                 sequence=captured,
                 captured_at=captured_at,
                 image_name=image_name,
                 jpeg=jpeg,
+                controller_snapshot_id=(
+                    controlled_snapshot.id if controlled_snapshot else None
+                ),
+                session_id=(
+                    controlled_snapshot.session_id if controlled_snapshot else None
+                ),
+                session_version=(
+                    controlled_snapshot.session_version if controlled_snapshot else None
+                ),
+                captured_state=(
+                    controlled_snapshot.captured_state if controlled_snapshot else None
+                ),
             )
             replaced = buffer.submit(snapshot)
             if replaced is not None:
                 superseded += 1
+                if controller is not None and replaced.controller_snapshot_id is not None:
+                    controller.finalize_snapshot(
+                        replaced.controller_snapshot_id, SnapshotStatus.SUPERSEDED
+                    )
                 event_log.append(make_capture_event(replaced, "superseded"))
                 print(
                     f"[{captured_at.isoformat(timespec='seconds')}] "
@@ -747,6 +864,8 @@ def run_capture_session(client: OpenAI, args: argparse.Namespace) -> bool:
         else:
             print("\nStopping capture...", flush=True)
     finally:
+        stopped_monotonic = time.monotonic()
+        stopped_at = datetime.now().astimezone()
         camera.release()
         if buffer is not None:
             buffer.close()
@@ -757,6 +876,15 @@ def run_capture_session(client: OpenAI, args: argparse.Namespace) -> bool:
                     flush=True,
                 )
             uploader.join()
+        if controller is not None and controller_session is not None:
+            current_session = controller.get_session(controller_session.id)
+            if current_session.state.is_active:
+                controller.end_early(
+                    controller_session.id,
+                    reason="capture_stopped",
+                    monotonic_now=stopped_monotonic,
+                    ended_at=stopped_at,
+                )
 
     if session_dir is None or observation_log is None:
         return False
