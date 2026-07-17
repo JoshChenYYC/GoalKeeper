@@ -15,12 +15,18 @@ import capture
 
 
 SAMPLE_OBSERVATION = {
-    "user_present": True,
-    "user_state": "sitting at desk",
+    "image_quality": {"value": "adequate", "limitations": []},
+    "people_count": 1,
     "objects": ["laptop", "notebook"],
-    "activity": "typing on laptop",
-    "possible_distractions": [],
-    "confidence": 0.91,
+    "observations": [
+        {
+            "subject": "visible_person",
+            "behavior": "typing_on_laptop",
+            "support": "direct",
+            "visual_basis": "Hands are positioned over the laptop keyboard.",
+            "limitations": [],
+        }
+    ],
 }
 
 
@@ -35,6 +41,16 @@ def snapshot(sequence: int) -> capture.Snapshot:
         + timedelta(seconds=sequence * 10),
         image_name=f"snapshot-{sequence}.jpg",
         jpeg=f"jpeg-{sequence}".encode(),
+    )
+
+
+def confirmed_preflight() -> capture.PreflightCapture:
+    captured_at = datetime(2026, 7, 15, 20, 29, tzinfo=timezone.utc)
+    return capture.PreflightCapture(
+        captured_at=captured_at,
+        confirmed_at=captured_at + timedelta(seconds=2),
+        jpeg=b"preflight jpeg",
+        observation=SAMPLE_OBSERVATION,
     )
 
 
@@ -85,6 +101,13 @@ class CaptureTests(unittest.TestCase):
         self.assertTrue(image["image_url"].startswith("data:image/jpeg;base64,"))
         self.assertEqual(request["text"]["format"]["type"], "json_schema")
         self.assertTrue(request["text"]["format"]["strict"])
+        schema = request["text"]["format"]["schema"]
+        self.assertEqual(
+            set(schema["required"]),
+            {"image_quality", "people_count", "objects", "observations"},
+        )
+        self.assertNotIn("possible_distractions", schema["properties"])
+        self.assertNotIn("confidence", schema["properties"])
 
     def test_process_jpeg_appends_sequence_aware_observation(self):
         client = Mock()
@@ -118,6 +141,130 @@ class CaptureTests(unittest.TestCase):
 
             self.assertTrue(path.is_file())
             self.assertEqual(path.read_text(encoding="utf-8"), "")
+
+    def test_preflight_accepts_only_adequate_single_person_scene(self):
+        self.assertIsNone(capture.preflight_validation_error(SAMPLE_OBSERVATION))
+
+        cases = [
+            (
+                {
+                    **SAMPLE_OBSERVATION,
+                    "image_quality": {
+                        "value": "limited",
+                        "limitations": ["room is too dark"],
+                    },
+                },
+                "image quality is limited",
+            ),
+            ({**SAMPLE_OBSERVATION, "people_count": None}, "indeterminate"),
+            ({**SAMPLE_OBSERVATION, "people_count": 0}, "no person"),
+            ({**SAMPLE_OBSERVATION, "people_count": 2}, "exactly one"),
+        ]
+        for observation, expected in cases:
+            with self.subTest(expected=expected):
+                self.assertIn(
+                    expected,
+                    capture.preflight_validation_error(observation),
+                )
+
+    def test_preview_space_captures_and_escape_cancels(self):
+        camera = FakeCamera()
+        with (
+            patch("capture.draw_preflight_status"),
+            patch("capture.encode_jpeg", return_value=b"setup jpeg"),
+            patch("capture.cv2.waitKey", return_value=32),
+            redirect_stdout(io.StringIO()),
+        ):
+            setup = capture.capture_setup_frame(camera, 85)
+
+        self.assertEqual(setup[1], b"setup jpeg")
+
+        with (
+            patch("capture.draw_preflight_status"),
+            patch("capture.cv2.waitKey", return_value=27),
+            redirect_stdout(io.StringIO()),
+        ):
+            self.assertIsNone(capture.capture_setup_frame(camera, 85))
+
+    def test_preflight_retries_rejected_frame_then_confirms_valid_frame(self):
+        client = Mock()
+        camera = FakeCamera()
+        rejected = {**SAMPLE_OBSERVATION, "people_count": 2}
+        setup = (
+            datetime(2026, 7, 15, 20, 29, tzinfo=timezone.utc),
+            b"setup jpeg",
+            object(),
+        )
+        args = SimpleNamespace(jpeg_quality=85, model="test-model", detail="low")
+
+        with (
+            patch("capture.cv2.namedWindow"),
+            patch("capture.cv2.destroyWindow"),
+            patch("capture.cv2.waitKey", return_value=1),
+            patch("capture.draw_preflight_status"),
+            patch("capture.capture_setup_frame", side_effect=[setup, setup]),
+            patch(
+                "capture.observe_snapshot",
+                side_effect=[rejected, SAMPLE_OBSERVATION],
+            ),
+            redirect_stdout(io.StringIO()),
+            redirect_stderr(io.StringIO()),
+        ):
+            result = capture.run_camera_preflight(
+                client,
+                camera,
+                args,
+                input_func=lambda _prompt: "y",
+            )
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result.jpeg, b"setup jpeg")
+        self.assertEqual(result.observation, SAMPLE_OBSERVATION)
+
+    def test_user_can_retry_an_accepted_preflight_frame(self):
+        client = Mock()
+        camera = FakeCamera()
+        setup = (
+            datetime(2026, 7, 15, 20, 29, tzinfo=timezone.utc),
+            b"setup jpeg",
+            object(),
+        )
+        choices = iter(["r", "y"])
+        args = SimpleNamespace(jpeg_quality=85, model="test-model", detail="low")
+
+        with (
+            patch("capture.cv2.namedWindow"),
+            patch("capture.cv2.destroyWindow"),
+            patch("capture.cv2.waitKey", return_value=1),
+            patch("capture.draw_preflight_status"),
+            patch("capture.capture_setup_frame", side_effect=[setup, setup]),
+            patch("capture.observe_snapshot", return_value=SAMPLE_OBSERVATION),
+            redirect_stdout(io.StringIO()),
+        ):
+            result = capture.run_camera_preflight(
+                client,
+                camera,
+                args,
+                input_func=lambda _prompt: next(choices),
+            )
+
+        self.assertIsNotNone(result)
+
+    def test_confirmed_preflight_artifacts_are_separate_from_observations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            session_dir = Path(directory)
+            capture.write_preflight_artifacts(session_dir, confirmed_preflight())
+            observations = capture.JsonlLog(session_dir / "observations.jsonl")
+
+            preflight_record = json.loads(
+                (session_dir / "preflight.json").read_text(encoding="utf-8")
+            )
+
+            self.assertEqual(
+                (session_dir / "preflight.jpg").read_bytes(), b"preflight jpeg"
+            )
+            self.assertEqual(preflight_record["observation"], SAMPLE_OBSERVATION)
+            self.assertEqual(observations.path.read_text(encoding="utf-8"), "")
 
     def test_latest_buffer_replaces_only_pending_snapshot(self):
         buffer = capture.LatestSnapshotBuffer()
@@ -278,6 +425,10 @@ class CaptureTests(unittest.TestCase):
             )
             with (
                 patch("capture.open_camera", return_value=camera),
+                patch(
+                    "capture.run_camera_preflight",
+                    return_value=confirmed_preflight(),
+                ),
                 patch("capture.encode_jpeg", return_value=b"jpeg bytes"),
                 redirect_stdout(io.StringIO()),
                 redirect_stderr(io.StringIO()),
@@ -285,7 +436,10 @@ class CaptureTests(unittest.TestCase):
                 capture.run_capture_session(client, args)
 
             session_dir = next(Path(directory).glob("session-*"))
-            images = list(session_dir.glob("*.jpg"))
+            images = [
+                path for path in session_dir.glob("*.jpg")
+                if path.name != "preflight.jpg"
+            ]
             observations = read_jsonl(session_dir / "observations.jsonl")
             events = read_jsonl(session_dir / "capture_events.jsonl")
 
@@ -299,6 +453,40 @@ class CaptureTests(unittest.TestCase):
         self.assertGreater(
             sum(event["status"] == "superseded" for event in events), 0
         )
+
+    def test_canceling_preflight_releases_camera_without_session_directory(self):
+        camera = FakeCamera()
+        client = Mock()
+        with tempfile.TemporaryDirectory() as directory:
+            args = SimpleNamespace(output_dir=Path(directory), camera=0)
+            with (
+                patch("capture.open_camera", return_value=camera),
+                patch("capture.run_camera_preflight", return_value=None),
+                redirect_stdout(io.StringIO()),
+            ):
+                started = capture.run_capture_session(client, args)
+
+            self.assertFalse(started)
+            self.assertTrue(camera.released)
+            self.assertEqual(list(Path(directory).glob("session-*")), [])
+
+    def test_preflight_error_releases_camera_without_session_directory(self):
+        camera = FakeCamera()
+        client = Mock()
+        with tempfile.TemporaryDirectory() as directory:
+            args = SimpleNamespace(output_dir=Path(directory), camera=0)
+            with (
+                patch("capture.open_camera", return_value=camera),
+                patch(
+                    "capture.run_camera_preflight",
+                    side_effect=RuntimeError("preview failed"),
+                ),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "preview failed"):
+                    capture.run_capture_session(client, args)
+
+            self.assertTrue(camera.released)
+            self.assertEqual(list(Path(directory).glob("session-*")), [])
 
     def test_cli_rejects_non_positive_interval(self):
         with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):

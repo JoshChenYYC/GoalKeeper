@@ -2,6 +2,48 @@ Planning note: the current agreed domain language is in CONTEXT.md and the
 detailed pre-implementation behavior plan is in docs/application-logic.md.
 Those documents supersede examples in this original vision when they differ.
 
+## Current recording prototype
+
+Install dependencies and set an OpenAI API key:
+
+```powershell
+python -m pip install -r requirements.txt
+$env:OPENAI_API_KEY="your-api-key"
+```
+
+Start a monitored capture session:
+
+```powershell
+python capture.py
+```
+
+Before monitoring begins, an OpenCV camera-preview window opens. Press Space
+to capture a setup frame or Esc to cancel. The Perception Agent accepts the
+setup only when image quality is adequate and exactly one person is visible;
+the user must then confirm the view in the terminal. Canceling preflight does
+not create a session folder.
+
+After confirmation, each session is stored under
+`captures/session-YYYYMMDD-HHMMSS/`:
+
+* `preflight.jpg` and `preflight.json` contain the confirmed setup check.
+* `observations.jsonl` contains neutral structured observations for reasoning.
+* `capture_events.jsonl` records whether frames were observed, superseded, or
+  failed during API processing.
+* Timestamped JPEGs retain every monitoring snapshot locally.
+
+Capture continues on its fixed cadence while one background API request runs.
+If inference falls behind, only the newest unprocessed frame remains pending.
+Stop with Ctrl+C; the camera is released before the active and newest pending
+requests finish.
+
+To test one existing JPEG against the Perception Agent without opening the
+camera or running interactive preflight:
+
+```powershell
+python capture.py --image path\to\snapshot.jpg
+```
+
 I think we've refined the idea quite a bit. If I had to describe the project now, this is how I'd summarize it:
 
 ---
