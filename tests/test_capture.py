@@ -1,11 +1,15 @@
 import base64
+import io
 import json
 import tempfile
+import threading
+import time
 import unittest
-from datetime import datetime, timezone
+from contextlib import redirect_stderr, redirect_stdout
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import capture
 
@@ -20,6 +24,37 @@ SAMPLE_OBSERVATION = {
 }
 
 
+def response_with_observation():
+    return SimpleNamespace(output_text=json.dumps(SAMPLE_OBSERVATION))
+
+
+def snapshot(sequence: int) -> capture.Snapshot:
+    return capture.Snapshot(
+        sequence=sequence,
+        captured_at=datetime(2026, 7, 15, 20, 30, tzinfo=timezone.utc)
+        + timedelta(seconds=sequence * 10),
+        image_name=f"snapshot-{sequence}.jpg",
+        jpeg=f"jpeg-{sequence}".encode(),
+    )
+
+
+def read_jsonl(path: Path):
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+
+
+class FakeCamera:
+    def __init__(self):
+        self.reads = 0
+        self.released = False
+
+    def read(self):
+        self.reads += 1
+        return True, object()
+
+    def release(self):
+        self.released = True
+
+
 class CaptureTests(unittest.TestCase):
     def test_jpeg_data_url_round_trips_bytes(self):
         jpeg = b"\xff\xd8test-jpeg\xff\xd9"
@@ -32,9 +67,7 @@ class CaptureTests(unittest.TestCase):
 
     def test_observe_snapshot_sends_image_and_structured_schema(self):
         client = Mock()
-        client.responses.create.return_value = SimpleNamespace(
-            output_text=json.dumps(SAMPLE_OBSERVATION)
-        )
+        client.responses.create.return_value = response_with_observation()
 
         result = capture.observe_snapshot(
             client,
@@ -53,33 +86,222 @@ class CaptureTests(unittest.TestCase):
         self.assertEqual(request["text"]["format"]["type"], "json_schema")
         self.assertTrue(request["text"]["format"]["strict"])
 
-    def test_process_jpeg_appends_reasoning_ready_jsonl_record(self):
+    def test_process_jpeg_appends_sequence_aware_observation(self):
         client = Mock()
-        client.responses.create.return_value = SimpleNamespace(
-            output_text=json.dumps(SAMPLE_OBSERVATION)
-        )
+        client.responses.create.return_value = response_with_observation()
         captured_at = datetime(2026, 7, 15, 20, 30, tzinfo=timezone.utc)
 
         with tempfile.TemporaryDirectory() as directory:
-            log_path = Path(directory) / "observations.jsonl"
+            observation_log = capture.JsonlLog(Path(directory) / "observations.jsonl")
             record = capture.process_jpeg(
                 client,
+                sequence=7,
                 jpeg=b"jpeg bytes",
                 captured_at=captured_at,
                 image_name="snapshot.jpg",
                 model="test-model",
                 detail="low",
-                log_path=log_path,
+                observation_log=observation_log,
             )
-            stored = json.loads(log_path.read_text(encoding="utf-8"))
+            stored = read_jsonl(observation_log.path)[0]
 
         self.assertEqual(stored, record)
+        self.assertEqual(stored["sequence"], 7)
         self.assertEqual(stored["image"], "snapshot.jpg")
         self.assertEqual(stored["observation"], SAMPLE_OBSERVATION)
         self.assertEqual(stored["captured_at"], "2026-07-15T20:30:00.000+00:00")
 
+    def test_jsonl_log_exists_before_first_record(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "observations.jsonl"
+            capture.JsonlLog(path)
+
+            self.assertTrue(path.is_file())
+            self.assertEqual(path.read_text(encoding="utf-8"), "")
+
+    def test_latest_buffer_replaces_only_pending_snapshot(self):
+        buffer = capture.LatestSnapshotBuffer()
+        first = snapshot(1)
+        second = snapshot(2)
+
+        self.assertIsNone(buffer.submit(first))
+        self.assertEqual(buffer.submit(second), first)
+        self.assertEqual(buffer.take(), second)
+
+        buffer.close()
+        self.assertIsNone(buffer.take())
+
+    def test_closed_buffer_drains_newest_pending_snapshot(self):
+        buffer = capture.LatestSnapshotBuffer()
+        latest = snapshot(3)
+        buffer.submit(latest)
+
+        buffer.close()
+
+        self.assertEqual(buffer.take(), latest)
+        self.assertIsNone(buffer.take())
+
+    def test_worker_finishes_in_flight_and_newest_pending_snapshot(self):
+        first_started = threading.Event()
+        release_first = threading.Event()
+        call_count = 0
+
+        def create_response(**_kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                first_started.set()
+                self.assertTrue(release_first.wait(timeout=2))
+            return response_with_observation()
+
+        client = Mock()
+        client.responses.create.side_effect = create_response
+        buffer = capture.LatestSnapshotBuffer()
+        stats = capture.UploadStats()
+
+        with tempfile.TemporaryDirectory() as directory:
+            observation_log = capture.JsonlLog(Path(directory) / "observations.jsonl")
+            event_log = capture.JsonlLog(Path(directory) / "capture_events.jsonl")
+            buffer.submit(snapshot(1))
+            worker = threading.Thread(
+                target=capture.upload_snapshots,
+                kwargs={
+                    "client": client,
+                    "buffer": buffer,
+                    "observation_log": observation_log,
+                    "event_log": event_log,
+                    "model": "test-model",
+                    "detail": "low",
+                    "stats": stats,
+                },
+            )
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                worker.start()
+                self.assertTrue(first_started.wait(timeout=2))
+                buffer.submit(snapshot(2))
+                replaced = buffer.submit(snapshot(3))
+                event_log.append(capture.make_capture_event(replaced, "superseded"))
+                buffer.close()
+                release_first.set()
+                worker.join(timeout=2)
+
+            observations = read_jsonl(observation_log.path)
+            events = read_jsonl(event_log.path)
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual([record["sequence"] for record in observations], [1, 3])
+        self.assertEqual(
+            [(event["sequence"], event["status"]) for event in events],
+            [(2, "superseded"), (1, "observed"), (3, "observed")],
+        )
+        self.assertEqual(stats.observed, 2)
+
+    def test_worker_logs_api_failure_and_continues_with_newest(self):
+        first_started = threading.Event()
+        release_first = threading.Event()
+        call_count = 0
+
+        def create_response(**_kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                first_started.set()
+                self.assertTrue(release_first.wait(timeout=2))
+                raise RuntimeError("temporary failure")
+            return response_with_observation()
+
+        client = Mock()
+        client.responses.create.side_effect = create_response
+        buffer = capture.LatestSnapshotBuffer()
+        stats = capture.UploadStats()
+
+        with tempfile.TemporaryDirectory() as directory:
+            observation_log = capture.JsonlLog(Path(directory) / "observations.jsonl")
+            event_log = capture.JsonlLog(Path(directory) / "capture_events.jsonl")
+            buffer.submit(snapshot(1))
+            worker = threading.Thread(
+                target=capture.upload_snapshots,
+                kwargs={
+                    "client": client,
+                    "buffer": buffer,
+                    "observation_log": observation_log,
+                    "event_log": event_log,
+                    "model": "test-model",
+                    "detail": "low",
+                    "stats": stats,
+                },
+            )
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                worker.start()
+                self.assertTrue(first_started.wait(timeout=2))
+                buffer.submit(snapshot(2))
+                buffer.close()
+                release_first.set()
+                worker.join(timeout=2)
+
+            observations = read_jsonl(observation_log.path)
+            events = read_jsonl(event_log.path)
+
+        self.assertEqual([record["sequence"] for record in observations], [2])
+        self.assertEqual(
+            [(event["sequence"], event["status"]) for event in events],
+            [(1, "api_error"), (2, "observed")],
+        )
+        self.assertEqual(events[0]["error"], "temporary failure")
+        self.assertEqual(stats.api_errors, 1)
+        self.assertEqual(stats.observed, 1)
+
+    def test_fixed_schedule_skips_missed_ticks_without_bursting(self):
+        self.assertEqual(capture.advance_capture_tick(0, 10, 5), 10)
+        self.assertEqual(capture.advance_capture_tick(0, 10, 25), 30)
+        self.assertEqual(capture.advance_capture_tick(20, 10, 30), 30)
+
+    def test_slow_api_does_not_block_capture_and_shutdown_releases_camera(self):
+        camera = FakeCamera()
+        client = Mock()
+
+        def slow_response(**_kwargs):
+            time.sleep(0.04)
+            return response_with_observation()
+
+        client.responses.create.side_effect = slow_response
+
+        with tempfile.TemporaryDirectory() as directory:
+            args = SimpleNamespace(
+                output_dir=Path(directory),
+                camera=0,
+                duration=0.0012,
+                interval=0.01,
+                jpeg_quality=85,
+                model="test-model",
+                detail="low",
+            )
+            with (
+                patch("capture.open_camera", return_value=camera),
+                patch("capture.encode_jpeg", return_value=b"jpeg bytes"),
+                redirect_stdout(io.StringIO()),
+                redirect_stderr(io.StringIO()),
+            ):
+                capture.run_capture_session(client, args)
+
+            session_dir = next(Path(directory).glob("session-*"))
+            images = list(session_dir.glob("*.jpg"))
+            observations = read_jsonl(session_dir / "observations.jsonl")
+            events = read_jsonl(session_dir / "capture_events.jsonl")
+
+        self.assertTrue(camera.released)
+        self.assertGreaterEqual(len(images), 4)
+        self.assertLess(client.responses.create.call_count, len(images))
+        self.assertEqual(
+            len(observations),
+            sum(event["status"] == "observed" for event in events),
+        )
+        self.assertGreater(
+            sum(event["status"] == "superseded" for event in events), 0
+        )
+
     def test_cli_rejects_non_positive_interval(self):
-        with self.assertRaises(SystemExit):
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             capture.parse_args(["--interval", "0"])
 
 
