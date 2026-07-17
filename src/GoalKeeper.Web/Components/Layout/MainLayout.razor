@@ -1,0 +1,19 @@
+﻿@inherits LayoutComponentBase
+
+<header class="topbar">
+    <a class="brand" href="/">GoalKeeper</a>
+    <nav>
+        <NavLink href="/" Match="NavLinkMatch.All">Goals</NavLink>
+        <NavLink href="profile">Deviation Profile</NavLink>
+    </nav>
+</header>
+
+<main class="shell">
+    @Body
+</main>
+
+<div id="blazor-error-ui" data-nosnippet>
+    An unhandled error has occurred.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">🗙</span>
+</div>

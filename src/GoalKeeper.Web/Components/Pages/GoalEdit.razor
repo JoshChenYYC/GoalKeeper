@@ -1,0 +1,71 @@
+@page "/goals/{GoalId:guid}/edit"
+@inject SetupWorkflow Workflow
+@inject NavigationManager Navigation
+
+<PageTitle>Edit Goal · GoalKeeper</PageTitle>
+<h1>Edit Goal</h1>
+
+@if (_form is null)
+{
+    <p>Loading…</p>
+}
+else
+{
+    <section class="panel">
+        <EditForm Model="_form" OnValidSubmit="SaveAsync">
+            <DataAnnotationsValidator />
+            <ValidationSummary />
+            <label>Title <InputText @bind-Value="_form.Title" /></label>
+            <label>Description <InputTextArea @bind-Value="_form.Description" /></label>
+            <div class="actions">
+                <button type="submit">Save</button>
+            </div>
+            <label class="confirm"><InputCheckbox @bind-Value="_form.ConfirmDelete" /> Confirm deletion of this Goal and its sessions</label>
+            <button type="button" class="danger" @onclick="DeleteAsync">Delete Goal</button>
+        </EditForm>
+        @if (_error is not null) { <p class="error">@_error</p> }
+    </section>
+}
+
+@code {
+    [Parameter] public Guid GoalId { get; set; }
+    private EditGoalForm? _form;
+    private string? _error;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var goal = await Workflow.GetGoalAsync(GoalId);
+        _form = new() { Title = goal.Title, Description = goal.Description, Version = goal.Version };
+    }
+
+    private async Task SaveAsync()
+    {
+        try
+        {
+            var goal = await Workflow.UpdateGoalAsync(GoalId, _form!.Version, _form.Title, _form.Description);
+            _form.Version = goal.Version;
+            _error = null;
+        }
+        catch (Exception exception) { _error = exception.Message; }
+    }
+
+    private async Task DeleteAsync()
+    {
+        try
+        {
+            if (!_form!.ConfirmDelete) throw new DomainRuleViolationException("Confirm Goal deletion first.");
+            await Workflow.DeleteGoalAsync(GoalId, _form!.Version);
+            Navigation.NavigateTo("/");
+        }
+        catch (Exception exception) { _error = exception.Message; }
+    }
+
+    private sealed class EditGoalForm
+    {
+        [System.ComponentModel.DataAnnotations.Required]
+        public string Title { get; set; } = "";
+        public string? Description { get; set; }
+        public long Version { get; set; }
+        public bool ConfirmDelete { get; set; }
+    }
+}

@@ -1,0 +1,59 @@
+@page "/profile"
+@inject SetupWorkflow Workflow
+
+<PageTitle>Deviation Profile · GoalKeeper</PageTitle>
+<h1>Deviation Profile</h1>
+<p class="lede">Describe visible patterns that may justify a supportive check-in. One Deviation per line.</p>
+
+<section class="panel">
+    <EditForm Model="_form" OnValidSubmit="SaveAsync">
+        <DataAnnotationsValidator />
+        <ValidationSummary />
+        <label>Name <InputText @bind-Value="_form.Name" /></label>
+        <label>Deviations <InputTextArea rows="8" @bind-Value="_form.Deviations" /></label>
+        <label>Visual observability
+            <InputSelect @bind-Value="_form.Observability">
+                @foreach (var value in Enum.GetValues<VisualObservability>()) { <option value="@value">@value</option> }
+            </InputSelect>
+        </label>
+        <button type="submit">Save profile</button>
+    </EditForm>
+    @if (_message is not null) { <p class="notice">@_message</p> }
+    @if (_error is not null) { <p class="error">@_error</p> }
+</section>
+
+@code {
+    private readonly ProfileForm _form = new();
+    private string? _message;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var profile = await Workflow.GetProfileAsync();
+        if (profile is null) return;
+        _form.Name = profile.Name;
+        _form.Deviations = string.Join(Environment.NewLine, profile.Deviations.Select(x => x.Description));
+    }
+
+    private async Task SaveAsync()
+    {
+        try
+        {
+            var deviations = _form.Deviations.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(x => new DeviationInput(x, _form.Observability)).ToArray();
+            await Workflow.SaveProfileAsync(_form.Name, deviations);
+            _message = "Profile saved. Active Session Contracts retain their original snapshots.";
+            _error = null;
+        }
+        catch (Exception exception) { _error = exception.Message; _message = null; }
+    }
+
+    private sealed class ProfileForm
+    {
+        [System.ComponentModel.DataAnnotations.Required]
+        public string Name { get; set; } = "Default";
+        [System.ComponentModel.DataAnnotations.Required]
+        public string Deviations { get; set; } = "";
+        public VisualObservability Observability { get; set; } = VisualObservability.Observable;
+    }
+}
