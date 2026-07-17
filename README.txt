@@ -2,6 +2,33 @@ Planning note: the current agreed domain language is in CONTEXT.md and the
 detailed pre-implementation behavior plan is in docs/application-logic.md.
 Those documents supersede examples in this original vision when they differ.
 
+## .NET local application
+
+Phases 1 and 2 are implemented in .NET 10. The solution contains a deterministic
+domain kernel, an application setup workflow, EF Core SQLite migrations, and an
+interactive-server Blazor UI. Application data defaults to
+`%LocalAppData%\GoalKeeper`; override it with the `GoalKeeper__DataRoot`
+environment variable.
+
+Run the automated migration-parity gate:
+
+```powershell
+python -m pytest -q
+dotnet test GoalKeeper.sln --configuration Release --maxcpucount:1
+```
+
+Start the local setup UI:
+
+```powershell
+dotnet run --project src/GoalKeeper.Web
+```
+
+The workflow supports Goal creation and editing, Deviation Profile setup,
+latest-contract prefill, immutable contract confirmation, and persisted ready
+Session Setups. Camera preflight and monitoring remain Phase 3 work. The Python
+implementation is intentionally retained as the behavioral reference during
+that migration.
+
 ## Current recording prototype
 
 Install dependencies and set an OpenAI API key:

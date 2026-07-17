@@ -14,9 +14,9 @@ The working vertical prototype is now split across provider-neutral orchestratio
 2. **`camera_adapter.py`**: OpenCV webcam lifecycle, preflight UI, and JPEG encoding.
 3. **`perception.py`**: direct OpenAI image requests, a neutral prompt, and the structured observation schema.
 
-Existing coverage includes 43 unit/integration-style tests: 20 capture, camera-adapter, and Perception tests plus 23 domain, SQLite, timer, controller, deletion, and Reasoning-boundary tests.
+Existing coverage includes 45 Python unit/integration-style tests plus 21 .NET domain, EF Core SQLite, deletion, migration, and Blazor-host tests.
 
-Baseline verified on 2026-07-16 with Python 3.11 after installing `requirements.txt`: all 43 tests pass without a webcam, provider credentials, hardware calls, or network calls.
+Baseline verified on 2026-07-16 with Python 3.11 and .NET SDK 10.0.202: all automated tests pass without a webcam, provider credentials, hardware calls, or network calls.
 
 Progress markers in this plan reflect the implementation review on 2026-07-16. Checked items are complete at the scope stated. Unchecked items with a **Partial** note have useful foundations but do not yet satisfy the complete plan item.
 
@@ -33,9 +33,9 @@ Progress markers in this plan reflect the implementation review on 2026-07-16. C
 | Direct hosted-model request | Implemented behind `PerceptionPort` | Keep provider configuration inside the OpenAI adapter |
 | JSONL observation/event logs | Prototype storage | Retain for diagnostics if useful; authoritative data moves to local persistence |
 | Wall-clock CLI duration | Implemented for smoke tests | Do not treat as the domain Focus Timer |
-| Goal, profile, and immutable contract model | Programmatic foundation implemented | Add the user-facing setup workflow and latest-contract prefill |
-| SQLite authoritative storage | Goals, profiles, contracts, sessions, snapshots, observations, audit events, and confirmed cascade deletion implemented | Add migrations, remaining records, and storage accounting |
-| Session controller and Focus Timer | Focusing, Scheduled Break, fulfillment, early ending, and Goal completion implemented | Complete Recovery, outage, and Intervention transitions |
+| Goal, profile, and immutable contract model | Implemented in the .NET domain and Blazor Session Setup workflow | Use as the authoritative Phase 3 foundation |
+| SQLite authoritative storage | EF Core schema, initial migration, repositories, optimistic versions, deletion, and storage accounting implemented | Extend repositories as Phase 3 records become live |
+| Session controller and Focus Timer | Complete deterministic .NET lifecycle implemented and fake-clock tested | Connect it to Phase 3 orchestration |
 | Reasoning boundary | Typed port, bounded recent observations, semantic/reference validation, atomic admission, and scripted test doubles implemented | Add durable evaluations, evidence episodes, freshness, and repair |
 | Voice Recovery and reviews | Not implemented | Build in the phases below |
 
@@ -49,13 +49,7 @@ Progress markers in this plan reflect the implementation review on 2026-07-16. C
 
 ## Stack decision
 
-Do not choose the full application stack solely because the first spike is Python. Make one explicit decision before expanding the codebase:
-
-- **Single Python application:** refactor `capture.py` into internal adapters.
-- **Another single-runtime application:** use the current code and tests as a behavioral specification, then port the capture and Perception adapters.
-- **Non-Python application with a Python worker:** expose the existing slice through a narrow local process boundary. Choose this only if preserving the spike saves more time than operating two runtimes costs.
-
-The recommended default is one application runtime. A Python worker is a pragmatic fallback for prototype speed, not the preferred permanent boundary.
+The application stack is .NET 10, interactive-server Blazor, EF Core migrations, and SQLite. [ADR 0001](./adr/0001-dotnet-local-application-stack.md) records the decision. Python remains a temporary behavioral reference for the Phase 3 capture and Perception port; the target architecture is one .NET runtime rather than a permanent Python worker.
 
 ## Target architecture
 
@@ -106,7 +100,7 @@ Use these logical modules regardless of language:
 ### Exit criteria
 
 - [x] Existing capture behavior has a reproducible test baseline.
-- [ ] The runtime, UI, persistence, provider, and capture-reuse decisions are recorded. **Partial:** the current runtime, persistence, and capture-reuse direction is evident; UI and provider decisions remain open.
+- [ ] The runtime, UI, persistence, provider, and capture-reuse decisions are recorded. **Partial:** .NET 10, Blazor interactive server, EF Core SQLite, LocalAppData, and temporary Python capture reuse are recorded in ADR 0001; hosted Reasoning and voice providers remain open.
 - [x] A fresh checkout can run automated tests without a webcam or provider credentials after installing `requirements.txt`.
 
 ## Phase 1: Deterministic domain kernel
@@ -120,19 +114,19 @@ Build this independently from `capture.py`.
 - [x] Focus Session and immutable Session Contract
 - [x] Scheduled Break and deterministic active-focus timing
 - [x] Snapshot and Observation reference
-- [ ] Evidence Episode
-- [ ] Durable Reasoning Evaluation and Intervention. **Partial:** typed Reasoning request/proposal types and a port exist.
-- [ ] Behavior Clarification and Deviation Override
-- [ ] Recovery Window and Session Review
+- [x] Evidence Episode
+- [x] Durable Reasoning Evaluation and Intervention
+- [x] Behavior Clarification and Deviation Override
+- [x] Recovery Window and Session Review
 
 ### Session states
 
 - [x] Focusing
 - [x] Scheduled Break
-- [ ] Recovery Check-in. **Partial:** validated Interventions enter the state atomically, but Recovery outcomes and timer reconciliation remain.
-- [ ] Recovery Window. **Partial:** the enum value exists, but controller transitions do not.
-- [ ] Awaiting Response. **Partial:** the enum value exists, but controller transitions do not.
-- [ ] Monitoring Unavailable
+- [x] Recovery Check-in
+- [x] Recovery Window
+- [x] Awaiting Response
+- [x] Monitoring Unavailable
 - [x] Fulfilled
 - [x] Ended Early
 
@@ -144,27 +138,27 @@ Build this independently from `capture.py`.
 - [x] Reach target active-focus duration
 - [x] Complete Goal early
 - [x] Admit a validated Intervention proposal through an atomic Focusing-to-Recovery-Check-in transition.
-- [ ] Provisionally dispute an evidence interval
-- [ ] Restore time after Behavior Clarification
-- [ ] Confirm excluded time and resume
-- [ ] Enter and leave Recovery Window
-- [ ] Apply remainder-of-session Deviation Override
-- [ ] Escalate repeated unsuccessful recoveries within a configured cap
-- [ ] End on no response, unrecovered technical failure, or user request. **Partial:** user-requested early ending is implemented.
+- [x] Provisionally dispute an evidence interval
+- [x] Restore time after Behavior Clarification
+- [x] Confirm excluded time and resume
+- [x] Enter and leave Recovery Window
+- [x] Apply remainder-of-session Deviation Override
+- [x] Escalate repeated unsuccessful recoveries within a configured cap
+- [x] End on no response, unrecovered technical failure, or user request
 
 ### Tests
 
-- [ ] Table-driven valid and invalid FSM transitions. **Partial:** focused transition examples exist, but not a complete FSM table.
+- [x] Table-driven valid and invalid FSM transitions
 - [x] Fake-clock Focus Timer and Scheduled Break tests
 - [x] Contract immutability
-- [ ] Projected end changes only after user approval
+- [x] Projected end changes only after user approval
 - [x] Goal completion as fulfillment
-- [ ] Recovery cap, reset, and timeout behavior
+- [x] Recovery cap, reset, and timeout behavior
 - [x] Active-Goal edit/delete lock
 
 ### Exit criteria
 
-- [ ] The entire lifecycle runs in memory using a fake clock with no camera, persistence, network, or LLM. **Partial:** focusing, breaks, fulfillment, Goal completion, and early ending run deterministically, but the current controller requires SQLite and the Recovery lifecycle is absent.
+- [x] The entire lifecycle runs in memory using a fake clock with no camera, persistence, network, or LLM.
 
 ## Phase 2: Persistence and setup workflow
 
@@ -187,18 +181,18 @@ Use normalized fields for queryable identity, state, and timing. Store versioned
 
 ### Work
 
-- [ ] Add database migrations and repositories. **Partial:** a versioned SQLite schema and repository exist, but forward migrations do not.
-- [ ] Create Goal and Deviation Profile setup. **Partial:** controller and repository APIs exist; a user-facing setup workflow does not.
+- [x] Add database migrations and repositories.
+- [x] Create Goal and Deviation Profile setup.
 - [x] Support Profile Only and Exploratory modes and qualitative sensitivity in contract models and persistence.
 - [x] Build programmatic Session Contract setup with duration and fixed Scheduled Breaks.
-- [ ] Prefill from the Goal's latest contract and lock a new immutable snapshot at start. **Partial:** immutable contract/profile snapshots are implemented; latest-contract prefill is not.
+- [x] Prefill from the Goal's latest contract and lock a new immutable snapshot at confirmation.
 - [x] Implement confirmed session and Goal cascade deletion across metadata and marker-owned image files.
 - [x] Add optimistic session versions for asynchronous work.
-- [ ] Track session and total snapshot storage usage.
+- [x] Track session and total snapshot storage usage.
 
 ### Exit criteria
 
-- [ ] A user can create a Goal and profile, confirm a contract, and persist a ready session. Historical contracts do not change when current Goal or profile data changes. **Partial:** the programmatic model preserves historical snapshots, but there is no user-facing workflow or persisted pre-start session.
+- [x] A user can create a Goal and profile, confirm a contract, and persist a ready Session Setup. Historical contracts do not change when current Goal or profile data changes.
 
 ## Phase 3: Extract and integrate capture and Perception
 

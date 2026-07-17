@@ -12,6 +12,10 @@ _Avoid_: Task, contract, session goal
 One bounded, monitored attempt to work toward a Goal.
 _Avoid_: Goal, timer, monitoring job
 
+**Session Setup**:
+The pre-monitoring workflow in which a Goal, profile snapshot, duration, breaks, reasoning mode, and sensitivity are reviewed and confirmed. It becomes a Focus Session only after successful camera preflight starts monitoring.
+_Avoid_: Ready Focus Session, draft session
+
 **Session Contract**:
 The immutable commitment governing one Focus Session, including its goal snapshot, duration, scheduled breaks, deviation snapshot, reasoning mode, and sensitivity.
 _Avoid_: Goal, preferences, live settings

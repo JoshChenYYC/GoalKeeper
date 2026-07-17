@@ -4,7 +4,7 @@ import tempfile
 import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -24,7 +24,7 @@ from domain import (
     SnapshotStatus,
 )
 from perception import OpenAIPerceptionAdapter
-from storage import ActiveSessionError, SQLiteRepository
+from storage import ActiveSessionError, ConcurrentUpdateError, SQLiteRepository
 
 
 OBSERVATION = {
@@ -173,6 +173,65 @@ class ControllerTestCase(unittest.TestCase):
         self.assertNotEqual(
             contract.deviation_snapshot,
             self.repository.get_deviation_profile(profile.id).deviations,
+        )
+
+    def test_confirmed_contract_keeps_goal_snapshot_after_goal_edit(self):
+        goal, contract = self.make_contract()
+
+        self.controller.update_goal(
+            goal.id,
+            title="Write the revised paper",
+            description="Replace the introduction",
+        )
+        session = self.controller.start_monitoring(
+            contract,
+            session_dir=self.root / "session",
+        )
+
+        self.assertEqual(session.contract.goal_title, "Write the paper")
+        self.assertEqual(
+            session.contract.goal_description,
+            "Draft the introduction",
+        )
+        self.assertEqual(
+            self.repository.get_goal(goal.id).title,
+            "Write the revised paper",
+        )
+
+    def test_stale_transition_does_not_append_an_audit_event(self):
+        _, _, session = self.start_session()
+        fresh = replace(
+            session,
+            accumulated_focus_seconds=1,
+        )
+        self.repository.save_session_progress(fresh)
+        ended = replace(
+            session,
+            state=SessionState.ENDED_EARLY,
+            version=session.version + 1,
+            ended_at=self.clock.now(),
+            end_reason="user_request",
+        )
+
+        self.repository.transition_session(
+            session,
+            ended,
+            occurred_at=self.clock.now(),
+            event="ended_early",
+        )
+        event_count = self.repository.count_rows("session_events")
+
+        with self.assertRaises(ConcurrentUpdateError):
+            self.repository.transition_session(
+                session,
+                ended,
+                occurred_at=self.clock.now(),
+                event="duplicate_end",
+            )
+
+        self.assertEqual(
+            self.repository.count_rows("session_events"),
+            event_count,
         )
 
     def test_sqlite_round_trip_and_single_active_session_constraint(self):

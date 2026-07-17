@@ -1,2 +1,9 @@
 captures/
 __pycache__/
+.pytest_cache/
+bin/
+obj/
+.vs/
+TestResults/
+*.user
+goalkeeper-design.db

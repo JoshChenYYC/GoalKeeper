@@ -1,0 +1,32 @@
+@page "/sessions/{SetupId:guid}/ready"
+@inject SetupWorkflow Workflow
+
+<PageTitle>Session Ready · GoalKeeper</PageTitle>
+<h1>Session ready</h1>
+
+@if (_setup is null)
+{
+    <p>Loading…</p>
+}
+else
+{
+    <section class="panel ready">
+        <span class="status">@_setup.Status</span>
+        <h2>@_setup.Contract.GoalTitle</h2>
+        <dl>
+            <dt>Target focus</dt><dd>@_setup.Contract.TargetFocusDuration.TotalMinutes:g minutes</dd>
+            <dt>Reasoning</dt><dd>@_setup.Contract.ReasoningMode · @_setup.Contract.Sensitivity</dd>
+            <dt>Breaks</dt><dd>@_setup.Contract.ScheduledBreaks.Count</dd>
+            <dt>Profile</dt><dd>@_setup.Contract.DeviationProfileName</dd>
+        </dl>
+        <p class="notice">The contract is immutable. Camera preflight and monitoring arrive in Phase 3.</p>
+    </section>
+}
+
+@code {
+    [Parameter] public Guid SetupId { get; set; }
+    private SessionSetupView? _setup;
+
+    protected override async Task OnParametersSetAsync() =>
+        _setup = await Workflow.GetSetupAsync(SetupId) ?? throw new KeyNotFoundException("Session Setup not found.");
+}

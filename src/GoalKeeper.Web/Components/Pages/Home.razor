@@ -1,0 +1,67 @@
+﻿@page "/"
+
+<PageTitle>Goals · GoalKeeper</PageTitle>
+
+<h1>Goals</h1>
+<p class="lede">Create a durable intention, then prepare a focused session around it.</p>
+
+<section class="panel">
+    <h2>New Goal</h2>
+    <EditForm Model="_form" OnValidSubmit="CreateGoalAsync">
+        <DataAnnotationsValidator />
+        <ValidationSummary />
+        <label>Title <InputText @bind-Value="_form.Title" /></label>
+        <label>Description <InputTextArea @bind-Value="_form.Description" /></label>
+        <button type="submit">Create Goal</button>
+    </EditForm>
+    @if (_error is not null) { <p class="error">@_error</p> }
+</section>
+
+<section class="stack">
+    @if (_goals.Count == 0)
+    {
+        <p class="empty">No Goals yet.</p>
+    }
+    @foreach (var goal in _goals)
+    {
+        <article class="goal-card">
+            <div>
+                <h2>@goal.Title</h2>
+                @if (goal.Description is not null) { <p>@goal.Description</p> }
+            </div>
+            <div class="actions">
+                <a class="button secondary" href="@($"/goals/{goal.Id}/edit")">Edit</a>
+                <a class="button" href="@($"/sessions/setup/{goal.Id}")">Prepare session</a>
+            </div>
+        </article>
+    }
+</section>
+
+@code {
+    [Inject] private SetupWorkflow Workflow { get; set; } = null!;
+    private readonly GoalForm _form = new();
+    private IReadOnlyList<GoalView> _goals = [];
+    private string? _error;
+
+    protected override async Task OnInitializedAsync() => _goals = await Workflow.ListGoalsAsync();
+
+    private async Task CreateGoalAsync()
+    {
+        try
+        {
+            await Workflow.CreateGoalAsync(_form.Title, _form.Description);
+            _form.Title = "";
+            _form.Description = null;
+            _goals = await Workflow.ListGoalsAsync();
+            _error = null;
+        }
+        catch (Exception exception) { _error = exception.Message; }
+    }
+
+    private sealed class GoalForm
+    {
+        [System.ComponentModel.DataAnnotations.Required]
+        public string Title { get; set; } = "";
+        public string? Description { get; set; }
+    }
+}

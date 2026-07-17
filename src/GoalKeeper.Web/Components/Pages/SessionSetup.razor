@@ -1,0 +1,101 @@
+@page "/sessions/setup/{GoalId:guid}"
+@inject SetupWorkflow Workflow
+@inject NavigationManager Navigation
+
+<PageTitle>Session Setup · GoalKeeper</PageTitle>
+<h1>Session Setup</h1>
+
+@if (_form is null)
+{
+    <p>Loading…</p>
+}
+else
+{
+    <section class="panel">
+        <h2>@_draft!.GoalTitle</h2>
+        <EditForm Model="_form" OnValidSubmit="ConfirmAsync">
+            <DataAnnotationsValidator />
+            <ValidationSummary />
+            <label>Target focus (minutes) <InputNumber @bind-Value="_form.TargetMinutes" /></label>
+            <label>Scheduled Breaks <span class="hint">one offset:duration pair per line, in minutes</span>
+                <InputTextArea rows="4" @bind-Value="_form.Breaks" />
+            </label>
+            <label>Reasoning mode
+                <InputSelect @bind-Value="_form.ReasoningMode">
+                    @foreach (var value in Enum.GetValues<ReasoningMode>()) { <option value="@value">@value</option> }
+                </InputSelect>
+            </label>
+            <label>Sensitivity
+                <InputSelect @bind-Value="_form.Sensitivity">
+                    @foreach (var value in Enum.GetValues<Sensitivity>()) { <option value="@value">@value</option> }
+                </InputSelect>
+            </label>
+            <div class="snapshot">
+                <strong>@_draft.DeviationProfileName</strong>
+                <ul>@foreach (var deviation in _draft.Deviations) { <li>@deviation.Description</li> }</ul>
+            </div>
+            <button type="submit">Confirm immutable contract</button>
+        </EditForm>
+        @if (_error is not null) { <p class="error">@_error</p> }
+    </section>
+}
+
+@code {
+    [Parameter] public Guid GoalId { get; set; }
+    private SessionContractDraft? _draft;
+    private SetupForm? _form;
+    private string? _error;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _draft = await Workflow.PrepareAsync(GoalId);
+        _form = new()
+        {
+            TargetMinutes = (int)_draft.TargetFocusDuration.TotalMinutes,
+            Breaks = string.Join(Environment.NewLine, _draft.ScheduledBreaks.Select(x =>
+                $"{x.ActiveFocusOffset.TotalMinutes:g}:{x.Duration.TotalMinutes:g}")),
+            ReasoningMode = _draft.ReasoningMode,
+            Sensitivity = _draft.Sensitivity
+        };
+    }
+
+    private async Task ConfirmAsync()
+    {
+        try
+        {
+            var breaks = ParseBreaks(_form!.Breaks);
+            var draft = _draft! with
+            {
+                TargetFocusDuration = TimeSpan.FromMinutes(_form.TargetMinutes),
+                ScheduledBreaks = breaks,
+                ReasoningMode = _form.ReasoningMode,
+                Sensitivity = _form.Sensitivity
+            };
+            var setup = await Workflow.ConfirmAsync(draft);
+            Navigation.NavigateTo($"/sessions/{setup.Id}/ready");
+        }
+        catch (Exception exception) { _error = exception.Message; }
+    }
+
+    private static IReadOnlyList<ScheduledBreakInput> ParseBreaks(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return [];
+        return text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(line =>
+            {
+                var parts = line.Split(':', StringSplitOptions.TrimEntries);
+                if (parts.Length != 2 || !double.TryParse(parts[0], out var offset) || !double.TryParse(parts[1], out var duration))
+                    throw new DomainRuleViolationException($"Invalid Scheduled Break: {line}");
+                return new ScheduledBreakInput(TimeSpan.FromMinutes(offset), TimeSpan.FromMinutes(duration));
+            }).ToArray();
+    }
+
+    private sealed class SetupForm
+    {
+        [System.ComponentModel.DataAnnotations.Range(1, 1440)]
+        public int TargetMinutes { get; set; } = 25;
+        public string? Breaks { get; set; }
+        public ReasoningMode ReasoningMode { get; set; }
+        public Sensitivity Sensitivity { get; set; }
+    }
+}
