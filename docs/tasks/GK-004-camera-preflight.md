@@ -1,6 +1,8 @@
 # GK-004 — .NET camera acquisition and preflight input
 
-**Status:** Ready
+**Status:** Done
+**Owner:** Codex `/root/gk004`
+**Branch:** `main` working tree
 **Depends on:** None
 **Suggested branch:** `task/GK-004-camera-preflight`
 

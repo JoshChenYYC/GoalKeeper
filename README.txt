@@ -2,6 +2,32 @@ Planning note: the current agreed domain language is in CONTEXT.md and the
 detailed pre-implementation behavior plan is in docs/application-logic.md.
 Those documents supersede examples in this original vision when they differ.
 
+## Automated quality gate
+
+The default gate is deterministic and does not open a camera or microphone,
+read a provider credential, or call a hosted model. It requires Python 3.11 and
+the .NET SDK selected by `global.json` (currently 10.0.202).
+
+From a fresh checkout, create an isolated Python test environment and run the
+same gate used by CI:
+
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-test.txt
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\quality-gate.ps1 -Python .\.venv\Scripts\python.exe
+```
+
+The script runs `python -m pytest -q`, NuGet restore and audit, .NET format
+verification, a warnings-as-errors Release build, and the complete
+`GoalKeeper.sln` test suite. Results are written below `TestResults/`, and the
+gate also enforces the retained baseline of at least 49 Python and 21 .NET test
+cases.
+
+Tests that need real hardware or a hosted provider must use the `hardware` or
+`provider` pytest marker. Those markers are excluded from the default gate.
+They are intentionally opt-in and require their own environment, credentials,
+and runtime dependencies.
+
 ## .NET local application
 
 Phases 1 and 2 are implemented in .NET 10. The solution contains a deterministic
@@ -9,13 +35,6 @@ domain kernel, an application setup workflow, EF Core SQLite migrations, and an
 interactive-server Blazor UI. Application data defaults to
 `%LocalAppData%\GoalKeeper`; override it with the `GoalKeeper__DataRoot`
 environment variable.
-
-Run the automated migration-parity gate:
-
-```powershell
-python -m pytest -q
-dotnet test GoalKeeper.sln --configuration Release --maxcpucount:1
-```
 
 Start the local setup UI:
 
@@ -31,7 +50,9 @@ that migration.
 
 ## Current recording prototype
 
-Install dependencies and set an OpenAI API key:
+The recording prototype is not part of the automated quality gate. To run it
+explicitly, install the interactive runtime dependencies in a separate
+environment and set an OpenAI API key:
 
 ```powershell
 python -m pip install -r requirements.txt
@@ -98,12 +119,6 @@ state, snapshots, observations, and state-transition events. Session JPEG and
 JSONL files remain inspectable artifacts. Observations captured during Scheduled
 Breaks and technical failures are persisted for audit but are never included in
 Reasoning Agent evidence.
-
-Run the automated suite with:
-
-```powershell
-python -m unittest discover -s tests -v
-```
 
 I think we've refined the idea quite a bit. If I had to describe the project now, this is how I'd summarize it:
 

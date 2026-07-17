@@ -12,18 +12,18 @@ This directory contains the remaining GoalKeeper roadmap as independently assign
 
 ## Task index
 
-| ID | Task | Initial status | Depends on | Primary output |
+| ID | Task | Current status | Depends on | Primary output |
 |---|---|---|---|---|
-| [GK-001](./GK-001-quality-gate.md) | Reproducible quality gate and CI | Ready | — | Offline-safe Python/.NET CI |
+| [GK-001](./GK-001-quality-gate.md) | Reproducible quality gate and CI | Done | — | Offline-safe Python/.NET CI |
 | [GK-002](./GK-002-provider-decisions.md) | Provider, model, privacy, and live-smoke decisions | Human gate | — | Accepted ADRs and smoke evidence |
-| [GK-003](./GK-003-runtime-persistence.md) | Runtime state and persistence foundation | Ready | — | Recoverable atomic runtime contract |
-| [GK-004](./GK-004-camera-preflight.md) | .NET camera acquisition and preflight input | Ready | — | Provider-neutral camera adapter |
-| [GK-005](./GK-005-perception-contract.md) | Perception schema, validator, port, and fake | Ready | — | Provider-neutral Observation contract |
+| [GK-003](./GK-003-runtime-persistence.md) | Runtime state and persistence foundation | Done | — | Recoverable atomic runtime contract |
+| [GK-004](./GK-004-camera-preflight.md) | .NET camera acquisition and preflight input | Done | — | Provider-neutral camera adapter |
+| [GK-005](./GK-005-perception-contract.md) | Perception schema, validator, port, and fake | Done | — | Provider-neutral Observation contract |
 | [GK-006](./GK-006-hosted-perception.md) | Hosted Perception adapter | Blocked | GK-002, GK-005 | Versioned image-provider integration |
-| [GK-007](./GK-007-monitoring-pipeline.md) | Capture/Perception pipeline and monitoring health | Blocked | GK-003, GK-004, GK-005 | Fresh persisted observation stream |
-| [GK-008](./GK-008-durable-reasoning.md) | Durable Reasoning core and deterministic fake | Blocked | GK-003, GK-005 | Bounded evidence-linked decisions |
+| [GK-007](./GK-007-monitoring-pipeline.md) | Capture/Perception pipeline and monitoring health | Ready | GK-003, GK-004, GK-005 | Fresh persisted observation stream |
+| [GK-008](./GK-008-durable-reasoning.md) | Durable Reasoning core and deterministic fake | Ready | GK-003, GK-005 | Bounded evidence-linked decisions |
 | [GK-009](./GK-009-hosted-reasoning.md) | Hosted Reasoning adapter | Blocked | GK-002, GK-008 | Versioned provider integration |
-| [GK-010](./GK-010-scripted-recovery.md) | Scripted Recovery boundary | Blocked | GK-003 | Deterministic Recovery proposals |
+| [GK-010](./GK-010-scripted-recovery.md) | Scripted Recovery boundary | Ready | GK-003 | Deterministic Recovery proposals |
 | [GK-011](./GK-011-runtime-controller.md) | End-to-end session runtime controller | Blocked | GK-007, GK-008, GK-010 | Complete fake-driven lifecycle |
 | [GK-012](./GK-012-voice-recovery.md) | Natural voice Recovery Check-in | Blocked | GK-002, GK-010, GK-011 | Bounded voice interaction |
 | [GK-013](./GK-013-live-session-ui.md) | Live Focus Session UI | Blocked | GK-011 | Preflight and live controls |

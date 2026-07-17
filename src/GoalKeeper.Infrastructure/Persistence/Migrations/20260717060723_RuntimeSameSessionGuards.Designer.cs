@@ -3,6 +3,7 @@ using System;
 using GoalKeeper.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace GoalKeeper.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(GoalKeeperDbContext))]
-    partial class GoalKeeperDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260717060723_RuntimeSameSessionGuards")]
+    partial class RuntimeSameSessionGuards
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.6");

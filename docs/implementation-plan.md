@@ -13,12 +13,13 @@ Use the project documents in this order:
 
 ## Current baseline
 
-The Phase 1 and 2 foundation is implemented in .NET 10:
+The Phase 1 and 2 foundation and the first delivery wave are implemented in .NET 10:
 
-- A framework-independent deterministic domain kernel owns the Focus Timer and documented Focus Session states. Runtime snapshot/rehydration and several atomic-command edge cases remain in GK-003 before live integration.
-- EF Core and SQLite persist setup data and define the Phase 3–7 record tables. The runtime write/query surface, complete relationships, standalone session deletion, and global one-active-session enforcement remain in GK-003.
+- A framework-independent deterministic domain kernel owns the Focus Timer and documented Focus Session states, including validated runtime snapshot/rehydration and an exhaustive atomic command/state matrix.
+- EF Core and SQLite persist setup and complete runtime state, enforce one active Focus Session globally, retain rejected evaluations separately, and expose bounded application-facing history/query contracts.
+- Provider-neutral camera acquisition and Perception v1 contracts have deterministic hardware/network-free fakes and contract suites.
 - The interactive-server Blazor UI supports Goal, Deviation Profile, Session Contract, and ready Session Setup workflows.
-- Camera, Perception, and controller checks marked complete in the old roadmap exist only in the Python reference; their .NET ports remain assigned work.
+- Hosted Perception, capture scheduling, durable Reasoning, Recovery, and the runtime controller remain assigned work.
 - The retained Python reference and current .NET foundation both have automated suites that run without hardware, provider credentials, or network calls.
 
 ## Target architecture

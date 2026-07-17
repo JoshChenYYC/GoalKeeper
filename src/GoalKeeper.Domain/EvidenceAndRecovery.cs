@@ -3,7 +3,7 @@ namespace GoalKeeper.Domain;
 public sealed record ObservationReference(string ObservationId, Guid SessionId, TimeSpan CapturedAt)
 {
     public static ObservationReference Create(string observationId, Guid sessionId, TimeSpan capturedAt) =>
-        new(Guard.Required(observationId, nameof(observationId)), sessionId,
+        new(Guard.Required(observationId, nameof(observationId)), Guard.Identifier(sessionId, nameof(sessionId)),
             Guard.NonNegative(capturedAt, nameof(capturedAt)));
 }
 
@@ -11,7 +11,8 @@ public sealed record DeviationReference(Guid? ListedDeviationId, string? Unliste
 {
     public bool IsUnlisted => ListedDeviationId is null;
 
-    public static DeviationReference Listed(Guid deviationId) => new(deviationId, null);
+    public static DeviationReference Listed(Guid deviationId) =>
+        new(Guard.Identifier(deviationId, nameof(deviationId)), null);
 
     public static DeviationReference Unlisted(string description) =>
         new(null, Guard.Required(description, nameof(description)));
@@ -48,6 +49,8 @@ public sealed class EvidenceEpisode
         DeviationReference deviation,
         IEnumerable<ObservationReference> observations)
     {
+        Guard.Identifier(sessionId, nameof(sessionId));
+        ValidateDeviation(deviation);
         var values = observations.ToArray();
         if (values.Length == 0)
         {
@@ -69,7 +72,39 @@ public sealed class EvidenceEpisode
             throw new DomainRuleViolationException("Evidence observations must be ordered.");
         }
 
+        foreach (var value in values)
+        {
+            _ = ObservationReference.Create(value.ObservationId, value.SessionId, value.CapturedAt);
+        }
+
         return new(Guid.NewGuid(), sessionId, deviation, Array.AsReadOnly(values));
+    }
+
+    internal static EvidenceEpisode Rehydrate(
+        Guid id,
+        Guid sessionId,
+        DeviationReference deviation,
+        IEnumerable<ObservationReference> observations)
+    {
+        Guard.Identifier(id, nameof(id));
+        var created = Create(sessionId, deviation, observations);
+        return new(id, created.SessionId, created.Deviation, created.Observations);
+    }
+
+    internal static void ValidateDeviation(DeviationReference deviation)
+    {
+        if (deviation.ListedDeviationId is { } listed)
+        {
+            Guard.Identifier(listed, nameof(deviation.ListedDeviationId));
+            if (!string.IsNullOrWhiteSpace(deviation.UnlistedDescription))
+            {
+                throw new DomainRuleViolationException("A listed Deviation cannot include an unlisted description.");
+            }
+        }
+        else
+        {
+            _ = Guard.Required(deviation.UnlistedDescription, nameof(deviation.UnlistedDescription));
+        }
     }
 }
 
@@ -85,7 +120,14 @@ public sealed record ReasoningEvaluation(
     DateTimeOffset EvaluatedAtUtc)
 {
     public static ReasoningEvaluation Continue(Guid sessionId, long sessionVersion, IClock clock) =>
-        new(Guid.NewGuid(), sessionId, sessionVersion, ReasoningDecision.ContinueObserving, null, null, clock.UtcNow);
+        Create(
+            Guid.NewGuid(),
+            sessionId,
+            sessionVersion,
+            ReasoningDecision.ContinueObserving,
+            null,
+            null,
+            clock.UtcNow);
 
     public static ReasoningEvaluation ProposeIntervention(
         Guid sessionId,
@@ -93,8 +135,60 @@ public sealed record ReasoningEvaluation(
         EvidenceEpisode episode,
         string rationale,
         IClock clock) =>
-        new(Guid.NewGuid(), sessionId, sessionVersion, ReasoningDecision.BeginRecoveryCheckIn,
-            episode, Guard.Required(rationale, nameof(rationale)), clock.UtcNow);
+        Create(
+            Guid.NewGuid(),
+            sessionId,
+            sessionVersion,
+            ReasoningDecision.BeginRecoveryCheckIn,
+            episode,
+            rationale,
+            clock.UtcNow);
+
+    internal static ReasoningEvaluation Rehydrate(
+        Guid id,
+        Guid sessionId,
+        long sessionVersion,
+        ReasoningDecision decision,
+        EvidenceEpisode? evidenceEpisode,
+        string? rationale,
+        DateTimeOffset evaluatedAtUtc) =>
+        Create(id, sessionId, sessionVersion, decision, evidenceEpisode, rationale, evaluatedAtUtc);
+
+    private static ReasoningEvaluation Create(
+        Guid id,
+        Guid sessionId,
+        long sessionVersion,
+        ReasoningDecision decision,
+        EvidenceEpisode? evidenceEpisode,
+        string? rationale,
+        DateTimeOffset evaluatedAtUtc)
+    {
+        Guard.Identifier(id, nameof(id));
+        Guard.Identifier(sessionId, nameof(sessionId));
+        Guard.DefinedEnum(decision, nameof(decision));
+        if (sessionVersion <= 0)
+        {
+            throw new DomainRuleViolationException("The session version must be positive.");
+        }
+
+        if (decision == ReasoningDecision.ContinueObserving)
+        {
+            if (evidenceEpisode is not null || !string.IsNullOrWhiteSpace(rationale))
+            {
+                throw new DomainRuleViolationException("Continue-observing cannot contain Intervention evidence.");
+            }
+        }
+        else if (evidenceEpisode is null || evidenceEpisode.SessionId != sessionId)
+        {
+            throw new DomainRuleViolationException("An Intervention evaluation requires same-session evidence.");
+        }
+        else
+        {
+            rationale = Guard.Required(rationale, nameof(rationale));
+        }
+
+        return new(id, sessionId, sessionVersion, decision, evidenceEpisode, rationale, evaluatedAtUtc);
+    }
 }
 
 public sealed record Intervention(
@@ -171,4 +265,20 @@ public sealed class FocusSessionPolicy
     public int MaximumUnsuccessfulRecoveries { get; }
 
     public int MaximumCoachingTurns { get; }
+
+    internal FocusSessionPolicySnapshot CreateSnapshot() =>
+        new(
+            RecoveryWindowDuration,
+            ResponseTimeout,
+            MonitoringOutageGrace,
+            MaximumUnsuccessfulRecoveries,
+            MaximumCoachingTurns);
+
+    internal static FocusSessionPolicy Rehydrate(FocusSessionPolicySnapshot snapshot) =>
+        new(
+            snapshot.RecoveryWindowDuration,
+            snapshot.ResponseTimeout,
+            snapshot.MonitoringOutageGrace,
+            snapshot.MaximumUnsuccessfulRecoveries,
+            snapshot.MaximumCoachingTurns);
 }

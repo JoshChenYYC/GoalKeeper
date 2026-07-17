@@ -1,6 +1,8 @@
 # GK-001 — Reproducible quality gate and CI
 
-**Status:** Ready
+**Status:** Done
+**Owner:** Codex `/root/gk001`
+**Branch:** `main` working tree
 **Depends on:** None
 **Suggested branch:** `task/GK-001-quality-gate`
 

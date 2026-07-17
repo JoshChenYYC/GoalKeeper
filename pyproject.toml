@@ -1,0 +1,12 @@
+[tool.pytest.ini_options]
+addopts = [
+    "--strict-config",
+    "--strict-markers",
+    "-m",
+    "not hardware and not provider",
+]
+testpaths = ["tests"]
+markers = [
+    "hardware: requires an explicitly selected real camera or microphone",
+    "provider: requires credentials and an explicitly selected hosted provider",
+]

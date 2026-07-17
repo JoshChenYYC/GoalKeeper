@@ -1,6 +1,6 @@
 # GK-007 — Capture/Perception pipeline and monitoring health
 
-**Status:** Blocked
+**Status:** Ready
 **Depends on:** GK-003, GK-004, GK-005
 **Suggested branch:** `task/GK-007-monitoring-pipeline`
 

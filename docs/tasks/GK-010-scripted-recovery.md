@@ -1,6 +1,6 @@
 # GK-010 — Scripted Recovery boundary
 
-**Status:** Blocked
+**Status:** Ready
 **Depends on:** GK-003
 **Suggested branch:** `task/GK-010-scripted-recovery`
 

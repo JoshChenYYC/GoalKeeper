@@ -37,6 +37,29 @@ public sealed class Goal
     public static Goal Create(string title, string? description, IClock clock) =>
         new(Guid.NewGuid(), Guard.Required(title, nameof(title)), Guard.Optional(description), clock.UtcNow);
 
+    public static Goal Rehydrate(
+        Guid id,
+        string title,
+        string? description,
+        GoalStatus status,
+        DateTimeOffset createdAtUtc,
+        DateTimeOffset? completedAtUtc)
+    {
+        Guard.Identifier(id, nameof(id));
+        Guard.DefinedEnum(status, nameof(status));
+        if ((status == GoalStatus.Completed) != completedAtUtc.HasValue ||
+            completedAtUtc is { } completed && completed < createdAtUtc)
+        {
+            throw new DomainRuleViolationException("The Goal completion snapshot is invalid.");
+        }
+
+        return new Goal(id, Guard.Required(title, nameof(title)), Guard.Optional(description), createdAtUtc)
+        {
+            Status = status,
+            CompletedAtUtc = completedAtUtc
+        };
+    }
+
     public void Update(string title, string? description, IClock clock)
     {
         _ = clock;
@@ -55,6 +78,7 @@ public sealed class Goal
 
     internal void BeginSession(Guid sessionId)
     {
+        Guard.Identifier(sessionId, nameof(sessionId));
         if (Status != GoalStatus.Active)
         {
             throw new DomainRuleViolationException("A Focus Session requires an active Goal.");
@@ -66,6 +90,14 @@ public sealed class Goal
         }
 
         _activeSessionId = sessionId;
+    }
+
+    internal void EnsureOwnedBySession(Guid sessionId)
+    {
+        if (_activeSessionId != sessionId)
+        {
+            throw new DomainRuleViolationException("The Focus Session does not own the Goal lock.");
+        }
     }
 
     internal void EndSession(Guid sessionId)
@@ -109,7 +141,13 @@ public sealed class Goal
 public sealed record Deviation(Guid Id, string Description, VisualObservability Observability)
 {
     public static Deviation Create(string description, VisualObservability observability) =>
-        new(Guid.NewGuid(), Guard.Required(description, nameof(description)), observability);
+        Rehydrate(Guid.NewGuid(), description, observability);
+
+    public static Deviation Rehydrate(Guid id, string description, VisualObservability observability) =>
+        new(
+            Guard.Identifier(id, nameof(id)),
+            Guard.Required(description, nameof(description)),
+            Guard.DefinedEnum(observability, nameof(observability)));
 
     internal Deviation WithDescription(string description) =>
         this with { Description = Guard.Required(description, nameof(description)) };
@@ -145,10 +183,7 @@ public sealed class DeviationProfile
     public static DeviationProfile Create(string name, IEnumerable<Deviation> deviations, IClock clock)
     {
         var values = deviations.ToArray();
-        if (values.Select(x => x.Id).Distinct().Count() != values.Length)
-        {
-            throw new DomainRuleViolationException("Deviation identifiers must be unique.");
-        }
+        ValidateDeviations(values);
 
         return new(Guid.NewGuid(), Guard.Required(name, nameof(name)), values, clock.UtcNow);
     }
@@ -161,6 +196,7 @@ public sealed class DeviationProfile
 
     public void AddDeviation(Deviation deviation, IClock clock)
     {
+        _ = Deviation.Rehydrate(deviation.Id, deviation.Description, deviation.Observability);
         if (_deviations.Any(x => x.Id == deviation.Id))
         {
             throw new DomainRuleViolationException("The Deviation already belongs to this profile.");
@@ -190,6 +226,19 @@ public sealed class DeviationProfile
         }
 
         UpdatedAtUtc = clock.UtcNow;
+    }
+
+    private static void ValidateDeviations(Deviation[] deviations)
+    {
+        foreach (var deviation in deviations)
+        {
+            _ = Deviation.Rehydrate(deviation.Id, deviation.Description, deviation.Observability);
+        }
+
+        if (deviations.Select(x => x.Id).Distinct().Count() != deviations.Length)
+        {
+            throw new DomainRuleViolationException("Deviation identifiers must be unique.");
+        }
     }
 }
 
@@ -254,8 +303,59 @@ public sealed class SessionContract
         Sensitivity sensitivity,
         IClock clock)
     {
+        var breaks = ValidateBreaks(targetFocusDuration, scheduledBreaks);
+
+        var deviationSnapshots = profile.Deviations
+            .Select(x => ValidatedDeviationSnapshot(x.Id, x.Description, x.Observability))
+            .ToArray();
+        return new(
+            Guid.NewGuid(),
+            ValidatedGoalSnapshot(goal.Id, goal.Title, goal.Description),
+            targetFocusDuration,
+            Array.AsReadOnly(breaks),
+            ValidatedProfileSnapshot(profile.Id, profile.Name, deviationSnapshots),
+            Guard.DefinedEnum(reasoningMode, nameof(reasoningMode)),
+            Guard.DefinedEnum(sensitivity, nameof(sensitivity)),
+            clock.UtcNow);
+    }
+
+    public static SessionContract Rehydrate(
+        Guid id,
+        GoalSnapshot goal,
+        TimeSpan targetFocusDuration,
+        IEnumerable<ScheduledBreak> scheduledBreaks,
+        DeviationProfileSnapshot deviationProfile,
+        ReasoningMode reasoningMode,
+        Sensitivity sensitivity,
+        DateTimeOffset confirmedAtUtc)
+    {
+        Guard.Identifier(id, nameof(id));
+        var breaks = ValidateBreaks(targetFocusDuration, scheduledBreaks);
+        var goalValue = ValidatedGoalSnapshot(goal.Id, goal.Title, goal.Description);
+        var profileValue = ValidatedProfileSnapshot(
+            deviationProfile.Id,
+            deviationProfile.Name,
+            deviationProfile.Deviations);
+        return new(
+            id,
+            goalValue,
+            targetFocusDuration,
+            Array.AsReadOnly(breaks),
+            profileValue,
+            Guard.DefinedEnum(reasoningMode, nameof(reasoningMode)),
+            Guard.DefinedEnum(sensitivity, nameof(sensitivity)),
+            confirmedAtUtc);
+    }
+
+    private static ScheduledBreak[] ValidateBreaks(
+        TimeSpan targetFocusDuration,
+        IEnumerable<ScheduledBreak> scheduledBreaks)
+    {
         Guard.Positive(targetFocusDuration, nameof(targetFocusDuration));
-        var breaks = scheduledBreaks.OrderBy(x => x.ActiveFocusOffset).ToArray();
+        var breaks = scheduledBreaks.Select(x =>
+            ScheduledBreak.Create(x.ActiveFocusOffset, x.Duration))
+            .OrderBy(x => x.ActiveFocusOffset)
+            .ToArray();
         if (breaks.Any(x => x.ActiveFocusOffset >= targetFocusDuration))
         {
             throw new DomainRuleViolationException("A Scheduled Break must occur before the focus target.");
@@ -266,17 +366,36 @@ public sealed class SessionContract
             throw new DomainRuleViolationException("Scheduled Break offsets must be unique.");
         }
 
-        var deviationSnapshots = profile.Deviations
-            .Select(x => new DeviationSnapshot(x.Id, x.Description, x.Observability))
-            .ToArray();
+        return breaks;
+    }
+
+    private static GoalSnapshot ValidatedGoalSnapshot(Guid id, string title, string? description) =>
+        new(Guard.Identifier(id, nameof(id)), Guard.Required(title, nameof(title)), Guard.Optional(description));
+
+    private static DeviationSnapshot ValidatedDeviationSnapshot(
+        Guid id,
+        string description,
+        VisualObservability observability) =>
+        new(
+            Guard.Identifier(id, nameof(id)),
+            Guard.Required(description, nameof(description)),
+            Guard.DefinedEnum(observability, nameof(observability)));
+
+    private static DeviationProfileSnapshot ValidatedProfileSnapshot(
+        Guid id,
+        string name,
+        IEnumerable<DeviationSnapshot> deviations)
+    {
+        var values = deviations.Select(x =>
+            ValidatedDeviationSnapshot(x.Id, x.Description, x.Observability)).ToArray();
+        if (values.Select(x => x.Id).Distinct().Count() != values.Length)
+        {
+            throw new DomainRuleViolationException("Deviation snapshot identifiers must be unique.");
+        }
+
         return new(
-            Guid.NewGuid(),
-            new GoalSnapshot(goal.Id, goal.Title, goal.Description),
-            targetFocusDuration,
-            Array.AsReadOnly(breaks),
-            new DeviationProfileSnapshot(profile.Id, profile.Name, Array.AsReadOnly(deviationSnapshots)),
-            reasoningMode,
-            sensitivity,
-            clock.UtcNow);
+            Guard.Identifier(id, nameof(id)),
+            Guard.Required(name, nameof(name)),
+            Array.AsReadOnly(values));
     }
 }

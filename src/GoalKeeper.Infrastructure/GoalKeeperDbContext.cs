@@ -16,6 +16,8 @@ public sealed class GoalKeeperDbContext(DbContextOptions<GoalKeeperDbContext> op
     public DbSet<ObservationEntity> Observations => Set<ObservationEntity>();
     public DbSet<ReasoningEvaluationEntity> ReasoningEvaluations => Set<ReasoningEvaluationEntity>();
     public DbSet<EvidenceEpisodeEntity> EvidenceEpisodes => Set<EvidenceEpisodeEntity>();
+    public DbSet<EvidenceObservationReferenceEntity> EvidenceObservationReferences =>
+        Set<EvidenceObservationReferenceEntity>();
     public DbSet<InterventionEntity> Interventions => Set<InterventionEntity>();
     public DbSet<RecoveryTurnEntity> RecoveryTurns => Set<RecoveryTurnEntity>();
     public DbSet<DeviationOverrideEntity> DeviationOverrides => Set<DeviationOverrideEntity>();
@@ -35,12 +37,19 @@ public sealed class GoalKeeperDbContext(DbContextOptions<GoalKeeperDbContext> op
         modelBuilder.Entity<SessionSetupEntity>().HasIndex(x => x.ContractId).IsUnique();
         modelBuilder.Entity<FocusSessionEntity>().ToTable("FocusSessions").Property(x => x.Version).IsConcurrencyToken();
         modelBuilder.Entity<FocusSessionEntity>().HasIndex(x => x.ContractId).IsUnique();
+        modelBuilder.Entity<FocusSessionEntity>().HasIndex(x => x.ActiveSlot).IsUnique();
         modelBuilder.Entity<SnapshotEntity>().ToTable("Snapshots").HasIndex(x => new { x.SessionId, x.Sequence }).IsUnique();
         modelBuilder.Entity<ObservationEntity>().ToTable("Observations").HasIndex(x => x.SnapshotId).IsUnique();
         modelBuilder.Entity<ReasoningEvaluationEntity>().ToTable("ReasoningEvaluations");
         modelBuilder.Entity<EvidenceEpisodeEntity>().ToTable("EvidenceEpisodes");
+        modelBuilder.Entity<EvidenceObservationReferenceEntity>().ToTable("EvidenceObservationReferences")
+            .HasKey(x => new { x.EvidenceEpisodeId, x.Sequence });
+        modelBuilder.Entity<EvidenceObservationReferenceEntity>()
+            .HasIndex(x => new { x.EvidenceEpisodeId, x.ObservationId }).IsUnique();
         modelBuilder.Entity<InterventionEntity>().ToTable("Interventions");
         modelBuilder.Entity<RecoveryTurnEntity>().ToTable("RecoveryTurns");
+        modelBuilder.Entity<RecoveryTurnEntity>()
+            .HasIndex(x => new { x.InterventionId, x.TurnNumber }).IsUnique();
         modelBuilder.Entity<DeviationOverrideEntity>().ToTable("DeviationOverrides");
         modelBuilder.Entity<SessionReviewEntity>().ToTable("SessionReviews").HasIndex(x => x.SessionId).IsUnique();
         modelBuilder.Entity<AuditEventEntity>().ToTable("AuditEvents");
@@ -52,6 +61,64 @@ public sealed class GoalKeeperDbContext(DbContextOptions<GoalKeeperDbContext> op
             .HasOne(x => x.Goal).WithMany(x => x.Sessions).HasForeignKey(x => x.GoalId).OnDelete(DeleteBehavior.Cascade);
         modelBuilder.Entity<FocusSessionEntity>()
             .HasOne(x => x.Contract).WithOne().HasForeignKey<FocusSessionEntity>(x => x.ContractId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<SessionSetupEntity>()
+            .HasOne(x => x.Contract).WithOne(x => x.Setup)
+            .HasForeignKey<SessionSetupEntity>(x => x.ContractId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<SnapshotEntity>()
+            .HasOne(x => x.Session).WithMany(x => x.Snapshots)
+            .HasForeignKey(x => x.SessionId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<ObservationEntity>()
+            .HasOne(x => x.Session).WithMany(x => x.Observations)
+            .HasForeignKey(x => x.SessionId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<ObservationEntity>()
+            .HasOne(x => x.Snapshot).WithOne(x => x.Observation)
+            .HasForeignKey<ObservationEntity>(x => x.SnapshotId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<ReasoningEvaluationEntity>()
+            .HasOne(x => x.Session).WithMany(x => x.ReasoningEvaluations)
+            .HasForeignKey(x => x.SessionId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<ReasoningEvaluationEntity>()
+            .HasOne(x => x.EvidenceEpisode).WithOne(x => x.Evaluation)
+            .HasForeignKey<ReasoningEvaluationEntity>(x => x.EvidenceEpisodeId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<EvidenceEpisodeEntity>()
+            .HasOne(x => x.Session).WithMany(x => x.EvidenceEpisodes)
+            .HasForeignKey(x => x.SessionId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<EvidenceObservationReferenceEntity>()
+            .HasOne(x => x.EvidenceEpisode).WithMany(x => x.ObservationReferences)
+            .HasForeignKey(x => x.EvidenceEpisodeId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<EvidenceObservationReferenceEntity>()
+            .HasOne(x => x.Observation).WithMany(x => x.EvidenceReferences)
+            .HasForeignKey(x => x.ObservationId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<InterventionEntity>()
+            .HasOne(x => x.Session).WithMany(x => x.Interventions)
+            .HasForeignKey(x => x.SessionId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<InterventionEntity>()
+            .HasOne(x => x.Evaluation).WithOne(x => x.Intervention)
+            .HasForeignKey<InterventionEntity>(x => x.EvaluationId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<InterventionEntity>()
+            .HasOne(x => x.EvidenceEpisode).WithOne(x => x.Intervention)
+            .HasForeignKey<InterventionEntity>(x => x.EvidenceEpisodeId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<RecoveryTurnEntity>()
+            .HasOne(x => x.Session).WithMany(x => x.RecoveryTurns)
+            .HasForeignKey(x => x.SessionId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<RecoveryTurnEntity>()
+            .HasOne(x => x.Intervention).WithMany(x => x.RecoveryTurns)
+            .HasForeignKey(x => x.InterventionId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<DeviationOverrideEntity>()
+            .HasOne(x => x.Session).WithMany(x => x.DeviationOverrides)
+            .HasForeignKey(x => x.SessionId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<SessionReviewEntity>()
+            .HasOne(x => x.Session).WithOne(x => x.Review)
+            .HasForeignKey<SessionReviewEntity>(x => x.SessionId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<AuditEventEntity>()
+            .HasOne(x => x.Session).WithMany(x => x.AuditEvents)
+            .HasForeignKey(x => x.SessionId).OnDelete(DeleteBehavior.Cascade);
 
         foreach (var entityType in modelBuilder.Model.GetEntityTypes())
         {

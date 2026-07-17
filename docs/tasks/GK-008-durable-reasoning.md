@@ -1,6 +1,6 @@
 # GK-008 — Durable Reasoning core and deterministic fake
 
-**Status:** Blocked
+**Status:** Ready
 **Depends on:** GK-003, GK-005
 **Suggested branch:** `task/GK-008-durable-reasoning`
 

@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace GoalKeeper.Infrastructure;
 
-public sealed class EfGoalKeeperRepository(
+public sealed partial class EfGoalKeeperRepository(
     IDbContextFactory<GoalKeeperDbContext> factory,
     SessionArtifactStore? artifactStore = null) : IGoalKeeperRepository
 {

@@ -1,6 +1,8 @@
 # GK-005 — Perception schema, validator, port, and fake
 
-**Status:** Ready
+**Status:** Done
+**Owner:** Codex `/root/gk005`
+**Branch:** `main` working tree
 **Depends on:** None
 **Suggested branch:** `task/GK-005-perception-contract`
 

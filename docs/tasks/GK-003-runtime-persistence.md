@@ -1,6 +1,8 @@
 # GK-003 — Runtime state and persistence foundation
 
-**Status:** Ready
+**Status:** Done
+**Owner:** Codex `/root`
+**Branch:** `main` working tree
 **Depends on:** None
 **Suggested branch:** `task/GK-003-runtime-persistence`
 

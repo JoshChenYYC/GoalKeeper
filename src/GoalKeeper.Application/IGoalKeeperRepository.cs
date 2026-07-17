@@ -1,3 +1,5 @@
+using GoalKeeper.Domain;
+
 namespace GoalKeeper.Application;
 
 public interface IGoalKeeperRepository
@@ -32,6 +34,67 @@ public interface IGoalKeeperRepository
         CancellationToken cancellationToken = default);
 
     Task<SessionSetupView?> GetSetupAsync(Guid id, CancellationToken cancellationToken = default);
+
+    Task<SessionSetupView> TransitionSetupAsync(
+        Guid id,
+        long expectedVersion,
+        SessionSetupStatus targetStatus,
+        CancellationToken cancellationToken = default);
+
+    Task<FocusSessionRuntimeView> StartSessionAsync(
+        Guid setupId,
+        long expectedSetupVersion,
+        FocusSessionRuntimeSnapshot initialRuntime,
+        string? artifactDirectory = null,
+        CancellationToken cancellationToken = default);
+
+    Task<FocusSessionRuntimeView?> GetSessionAsync(
+        Guid id,
+        CancellationToken cancellationToken = default);
+
+    Task<FocusSessionRuntimeView> UpdateSessionAsync(
+        Guid id,
+        RuntimeMutation mutation,
+        CancellationToken cancellationToken = default);
+
+    Task DeleteSessionAsync(Guid id, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<SessionHistoryItem>> ListSessionHistoryAsync(
+        Guid? goalId = null,
+        int limit = 100,
+        CancellationToken cancellationToken = default);
+
+    Task<SnapshotView> AddSnapshotAsync(
+        SnapshotWrite snapshot,
+        CancellationToken cancellationToken = default);
+
+    Task<SnapshotView> UpdateSnapshotStatusAsync(
+        Guid sessionId,
+        Guid snapshotId,
+        SnapshotProcessingStatus status,
+        CancellationToken cancellationToken = default);
+
+    Task<ObservationView> AddObservationAsync(
+        ObservationWrite observation,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<ObservationView>> GetRecentObservationsAsync(
+        Guid sessionId,
+        int limit,
+        CancellationToken cancellationToken = default);
+
+    Task<ReasoningCommitResult> CommitReasoningEvaluationAsync(
+        ReasoningCommitRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<ReasoningEvaluationView>> GetRecentReasoningEvaluationsAsync(
+        Guid sessionId,
+        int limit,
+        CancellationToken cancellationToken = default);
+
+    Task AddRecoveryTurnAsync(
+        RecoveryTurnWrite turn,
+        CancellationToken cancellationToken = default);
 
     Task<StorageUsageView> GetStorageUsageAsync(Guid? sessionId = null,
         CancellationToken cancellationToken = default);

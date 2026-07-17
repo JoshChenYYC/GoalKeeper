@@ -1,4 +1,6 @@
 captures/
+.venv/
+.nuget/
 __pycache__/
 .pytest_cache/
 bin/

@@ -14,6 +14,26 @@ public interface IClock
 
 internal static class Guard
 {
+    public static Guid Identifier(Guid value, string name)
+    {
+        if (value == Guid.Empty)
+        {
+            throw new DomainRuleViolationException($"{name} is required.");
+        }
+
+        return value;
+    }
+
+    public static T DefinedEnum<T>(T value, string name) where T : struct, Enum
+    {
+        if (!Enum.IsDefined(value))
+        {
+            throw new DomainRuleViolationException($"{name} is invalid.");
+        }
+
+        return value;
+    }
+
     public static string Required(string? value, string name)
     {
         var cleaned = value?.Trim();
