@@ -7,8 +7,9 @@ import time
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Mapping, Protocol
 
+from artifacts import ArtifactClaim, FilesystemSessionArtifacts
 from domain import (
     DeviationProfile,
     FocusSession,
@@ -16,6 +17,7 @@ from domain import (
     GoalStatus,
     ObservationRecord,
     ReasoningPort,
+    ReasoningDecisionKind,
     ReasoningProposal,
     ReasoningRequest,
     ReasoningMode,
@@ -27,7 +29,7 @@ from domain import (
     SessionState,
     SnapshotStatus,
 )
-from storage import ActiveSessionError, SQLiteRepository
+from storage import ActiveSessionError, NotFoundError, SQLiteRepository
 
 
 class Clock(Protocol):
@@ -62,6 +64,7 @@ class FocusSessionController:
         *,
         clock: Clock | None = None,
         reasoning_port: ReasoningPort | None = None,
+        artifact_store: FilesystemSessionArtifacts | None = None,
         recent_observation_limit: int = 20,
         reconcile_interrupted: bool = True,
     ) -> None:
@@ -70,6 +73,7 @@ class FocusSessionController:
         self.repository = repository
         self.clock = clock or SystemClock()
         self.reasoning_port = reasoning_port
+        self.artifact_store = artifact_store or FilesystemSessionArtifacts()
         self.recent_observation_limit = recent_observation_limit
         self._lock = threading.RLock()
         self._runtime: dict[str, _RuntimeTimer] = {}
@@ -94,7 +98,26 @@ class FocusSessionController:
     def delete_goal(self, goal_id: str, *, confirmed: bool) -> None:
         if not confirmed:
             raise ValueError("goal deletion requires explicit confirmation")
-        self.repository.delete_goal(goal_id)
+        with self._lock:
+            sessions = self.repository.list_sessions_for_goal(goal_id)
+            if any(session.state.is_active for session in sessions):
+                raise ActiveSessionError("goal has an active focus session")
+            for session in sessions:
+                self.artifact_store.validate(session.id, session.session_dir)
+            self.repository.delete_goal(goal_id)
+            for session in sessions:
+                self.artifact_store.delete(session.id, session.session_dir)
+
+    def delete_session(self, session_id: str, *, confirmed: bool) -> None:
+        if not confirmed:
+            raise ValueError("session deletion requires explicit confirmation")
+        with self._lock:
+            session = self.repository.get_session(session_id)
+            if session.state.is_active:
+                raise ActiveSessionError("cannot delete an active focus session")
+            self.artifact_store.validate(session.id, session.session_dir)
+            self.repository.delete_session(session.id)
+            self.artifact_store.delete(session.id, session.session_dir)
 
     def save_deviation_profile(
         self, profile: DeviationProfile
@@ -167,9 +190,18 @@ class FocusSessionController:
                 created_at=started,
                 started_at=started,
                 current_break_index=next_break,
-                session_dir=str(session_dir) if session_dir is not None else None,
+                session_dir=None,
             )
-            self.repository.create_session(session)
+            claim: ArtifactClaim | None = None
+            if session_dir is not None:
+                claim = self.artifact_store.claim(session.id, session_dir)
+                session = replace(session, session_dir=str(claim.path))
+            try:
+                self.repository.create_session(session)
+            except Exception:
+                if claim is not None:
+                    self.artifact_store.rollback_claim(claim)
+                raise
             self._runtime[session.id] = _RuntimeTimer(self.clock.monotonic())
             return session
 
@@ -294,6 +326,8 @@ class FocusSessionController:
 
             if session.state.is_active:
                 self.repository.save_session_progress(session)
+            else:
+                self._runtime.pop(session_id, None)
             return session
 
     def _distance_to_break(self, session: FocusSession) -> float:
@@ -331,6 +365,7 @@ class FocusSessionController:
         state: SessionState,
         occurred_at: datetime,
         event: str,
+        payload: dict[str, Any] | None = None,
         end_reason: str | None = None,
         current_break_index: int | None | object = ...,
         current_break_elapsed_seconds: float | None = None,
@@ -356,6 +391,7 @@ class FocusSessionController:
             updated,
             occurred_at=occurred_at,
             event=event,
+            payload=payload,
         )
 
     def end_early(
@@ -488,6 +524,17 @@ class FocusSessionController:
         if self.reasoning_port is None or not observation.reasoning_eligible:
             return None
         with self._lock:
+            try:
+                stored_observation = self.repository.get_observation(observation.id)
+            except NotFoundError as error:
+                raise InvalidReasoningProposal(
+                    "reasoning input observation is not persisted"
+                ) from error
+            if stored_observation != observation:
+                raise InvalidReasoningProposal(
+                    "reasoning input observation does not match persisted data"
+                )
+            observation = stored_observation
             session = self.repository.get_session(observation.session_id)
             if (
                 session.state != SessionState.FOCUSING
@@ -507,6 +554,8 @@ class FocusSessionController:
                 recent_observations=recent,
             )
         proposal = self.reasoning_port.evaluate(request)
+        if not isinstance(proposal, ReasoningProposal):
+            raise InvalidReasoningProposal("reasoning port returned an invalid proposal type")
         if (
             proposal.session_id != request.session_id
             or proposal.session_version != request.session_version
@@ -515,24 +564,192 @@ class FocusSessionController:
             raise InvalidReasoningProposal(
                 "reasoning proposal does not match its request identifiers"
             )
-        current = self.repository.get_session(observation.session_id)
-        if current.state != SessionState.FOCUSING or current.version != proposal.session_version:
-            raise InvalidReasoningProposal("reasoning proposal became stale")
-        self.repository.append_session_event(
-            current,
-            occurred_at=self.clock.now(),
-            event="reasoning_proposal_received",
-            payload={"observation_id": observation.id, "kind": proposal.kind},
-        )
+        with self._lock:
+            current = self.repository.get_session(observation.session_id)
+            if (
+                current.state != SessionState.FOCUSING
+                or current.version != proposal.session_version
+            ):
+                raise InvalidReasoningProposal("reasoning proposal became stale")
+            kind, validated_payload = self._validate_reasoning_proposal(
+                current, observation, proposal
+            )
+            event_payload = {
+                "observation_id": observation.id,
+                "kind": kind.value,
+                **validated_payload,
+            }
+            if kind == ReasoningDecisionKind.CONTINUE_OBSERVING:
+                self.repository.append_session_event(
+                    current,
+                    occurred_at=self.clock.now(),
+                    event="reasoning_proposal_received",
+                    payload=event_payload,
+                )
+            else:
+                self._transition(
+                    current,
+                    state=SessionState.RECOVERY_CHECK_IN,
+                    occurred_at=self.clock.now(),
+                    event="intervention_admitted",
+                    payload=event_payload,
+                )
         return proposal
+
+    def _validate_reasoning_proposal(
+        self,
+        session: FocusSession,
+        triggering_observation: ObservationRecord,
+        proposal: ReasoningProposal,
+    ) -> tuple[ReasoningDecisionKind, dict[str, Any]]:
+        try:
+            kind = ReasoningDecisionKind(proposal.kind)
+        except ValueError as error:
+            raise InvalidReasoningProposal(
+                f"unsupported reasoning proposal kind: {proposal.kind}"
+            ) from error
+
+        payload = dict(proposal.payload)
+        if kind == ReasoningDecisionKind.CONTINUE_OBSERVING:
+            if payload:
+                raise InvalidReasoningProposal(
+                    "continue_observing does not accept a payload"
+                )
+            return kind, {}
+
+        allowed_fields = {
+            "deviation_id",
+            "evidence_start_observation_id",
+            "evidence_latest_observation_id",
+            "key_observation_ids",
+            "contradictory_or_indeterminate_observation_ids",
+            "rationale",
+        }
+        if set(payload) != allowed_fields:
+            missing = sorted(allowed_fields - set(payload))
+            unknown = sorted(set(payload) - allowed_fields)
+            details = []
+            if missing:
+                details.append(f"missing fields: {', '.join(missing)}")
+            if unknown:
+                details.append(f"unknown fields: {', '.join(unknown)}")
+            raise InvalidReasoningProposal("; ".join(details))
+
+        deviation_id = self._required_payload_text(payload, "deviation_id")
+        rationale = self._required_payload_text(payload, "rationale")
+        evidence_start_id = self._required_payload_text(
+            payload, "evidence_start_observation_id"
+        )
+        evidence_latest_id = self._required_payload_text(
+            payload, "evidence_latest_observation_id"
+        )
+        key_ids = self._observation_id_list(payload, "key_observation_ids", required=True)
+        contrary_ids = self._observation_id_list(
+            payload,
+            "contradictory_or_indeterminate_observation_ids",
+            required=False,
+        )
+        if set(key_ids) & set(contrary_ids):
+            raise InvalidReasoningProposal(
+                "supporting and contradictory observation references must be disjoint"
+            )
+
+        listed_deviation_ids = {
+            deviation.id for deviation in session.contract.deviation_snapshot
+        }
+        if session.contract.reasoning_mode == ReasoningMode.PROFILE_ONLY:
+            if deviation_id not in listed_deviation_ids:
+                raise InvalidReasoningProposal(
+                    "Profile Only interventions require a listed Deviation"
+                )
+        elif deviation_id != "unlisted" and deviation_id not in listed_deviation_ids:
+            raise InvalidReasoningProposal(
+                "Exploratory interventions require a listed Deviation or 'unlisted'"
+            )
+
+        referenced_ids = {
+            evidence_start_id,
+            evidence_latest_id,
+            *key_ids,
+            *contrary_ids,
+        }
+        referenced: dict[str, ObservationRecord] = {}
+        for observation_id in referenced_ids:
+            try:
+                record = self.repository.get_observation(observation_id)
+            except NotFoundError as error:
+                raise InvalidReasoningProposal(
+                    f"referenced observation does not exist: {observation_id}"
+                ) from error
+            if record.session_id != session.id:
+                raise InvalidReasoningProposal(
+                    f"referenced observation belongs to another session: {observation_id}"
+                )
+            if not record.reasoning_eligible:
+                raise InvalidReasoningProposal(
+                    f"referenced observation is not eligible evidence: {observation_id}"
+                )
+            if record.sequence > triggering_observation.sequence:
+                raise InvalidReasoningProposal(
+                    f"referenced observation is newer than the request: {observation_id}"
+                )
+            referenced[observation_id] = record
+
+        start_sequence = referenced[evidence_start_id].sequence
+        latest_sequence = referenced[evidence_latest_id].sequence
+        if start_sequence > latest_sequence:
+            raise InvalidReasoningProposal(
+                "evidence start must not occur after the latest evidence"
+            )
+        for observation_id in (*key_ids, *contrary_ids):
+            sequence = referenced[observation_id].sequence
+            if not start_sequence <= sequence <= latest_sequence:
+                raise InvalidReasoningProposal(
+                    "episode references must fall between evidence start and latest"
+                )
+
+        return kind, {
+            "deviation_id": deviation_id,
+            "evidence_start_observation_id": evidence_start_id,
+            "evidence_latest_observation_id": evidence_latest_id,
+            "key_observation_ids": list(key_ids),
+            "contradictory_or_indeterminate_observation_ids": list(contrary_ids),
+            "rationale": rationale,
+        }
+
+    @staticmethod
+    def _required_payload_text(payload: Mapping[str, Any], field: str) -> str:
+        value = payload.get(field)
+        if not isinstance(value, str) or not value.strip():
+            raise InvalidReasoningProposal(f"{field} must be a nonempty string")
+        return value.strip()
+
+    @staticmethod
+    def _observation_id_list(
+        payload: Mapping[str, Any], field: str, *, required: bool
+    ) -> tuple[str, ...]:
+        value = payload.get(field)
+        if not isinstance(value, (list, tuple)):
+            raise InvalidReasoningProposal(f"{field} must be a list")
+        if required and not value:
+            raise InvalidReasoningProposal(f"{field} must not be empty")
+        if len(value) > 5:
+            raise InvalidReasoningProposal(f"{field} must contain at most five references")
+        if any(not isinstance(item, str) or not item.strip() for item in value):
+            raise InvalidReasoningProposal(f"{field} contains an invalid identifier")
+        cleaned = tuple(item.strip() for item in value)
+        if len(cleaned) != len(set(cleaned)):
+            raise InvalidReasoningProposal(f"{field} contains duplicate identifiers")
+        return cleaned
 
     def record_reasoning_error(
         self, observation: ObservationRecord, error: Exception
     ) -> None:
-        session = self.repository.get_session(observation.session_id)
-        self.repository.append_session_event(
-            session,
-            occurred_at=self.clock.now(),
-            event="reasoning_error",
-            payload={"observation_id": observation.id, "error": str(error)},
-        )
+        with self._lock:
+            session = self.repository.get_session(observation.session_id)
+            self.repository.append_session_event(
+                session,
+                occurred_at=self.clock.now(),
+                event="reasoning_error",
+                payload={"observation_id": observation.id, "error": str(error)},
+            )

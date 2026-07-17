@@ -460,6 +460,35 @@ class SQLiteRepository:
             raise NotFoundError(f"focus session does not exist: {session_id}")
         return self._session_from_row(row)
 
+    def list_sessions_for_goal(self, goal_id: str) -> tuple[FocusSession, ...]:
+        with self._lock:
+            rows = self._connection.execute(
+                """SELECT focus_sessions.*, session_contracts.contract_json
+                   FROM focus_sessions JOIN session_contracts
+                   ON session_contracts.id = focus_sessions.contract_id
+                   WHERE focus_sessions.goal_id = ?
+                   ORDER BY focus_sessions.created_at""",
+                (goal_id,),
+            ).fetchall()
+        return tuple(self._session_from_row(row) for row in rows)
+
+    def delete_session(self, session_id: str) -> None:
+        session = self.get_session(session_id)
+        if session.state.is_active:
+            raise ActiveSessionError("cannot delete an active focus session")
+        with self._lock, self._connection:
+            cursor = self._connection.execute(
+                "DELETE FROM focus_sessions WHERE id = ? AND state NOT IN ("
+                + ",".join("?" for _ in ACTIVE_STATES)
+                + ")",
+                (session.id, *ACTIVE_STATES),
+            )
+            if cursor.rowcount != 1:
+                raise ActiveSessionError("cannot delete an active focus session")
+            self._connection.execute(
+                "DELETE FROM session_contracts WHERE id = ?", (session.contract.id,)
+            )
+
     def list_active_sessions(self) -> list[FocusSession]:
         placeholders = ",".join("?" for _ in ACTIVE_STATES)
         with self._lock:
@@ -719,6 +748,15 @@ class SQLiteRepository:
             ).fetchall()
         records = [self._observation_from_row(row) for row in reversed(rows)]
         return tuple(records)
+
+    def get_observation(self, observation_id: str) -> ObservationRecord:
+        with self._lock:
+            row = self._connection.execute(
+                "SELECT * FROM observations WHERE id = ?", (observation_id,)
+            ).fetchone()
+        if row is None:
+            raise NotFoundError(f"observation does not exist: {observation_id}")
+        return self._observation_from_row(row)
 
     def _observation_from_row(self, row: sqlite3.Row) -> ObservationRecord:
         return ObservationRecord(

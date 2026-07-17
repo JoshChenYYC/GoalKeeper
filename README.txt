@@ -54,6 +54,10 @@ future Goal/contract setup interface and Reasoning Agent:
 * `storage.py` provides the thread-safe SQLite authoritative store.
 * `controller.py` owns Focus Session transitions, the active-focus timer,
   Scheduled Breaks, observation eligibility, and proposal validation.
+* `ports.py` defines provider-neutral Camera, preview, and Perception boundaries;
+  `camera_adapter.py` and `perception.py` contain the OpenCV and OpenAI details.
+* Confirmed session and Goal deletion remove related SQLite records and only
+  filesystem directories carrying the matching GoalKeeper ownership marker.
 
 The current `python capture.py` command intentionally remains a recording-only
 prototype until the Goal and Session Contract setup interface is implemented.

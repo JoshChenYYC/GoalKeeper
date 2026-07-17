@@ -69,6 +69,11 @@ class SnapshotStatus(str, Enum):
     API_ERROR = "api_error"
 
 
+class ReasoningDecisionKind(str, Enum):
+    CONTINUE_OBSERVING = "continue_observing"
+    BEGIN_RECOVERY_CHECK_IN = "begin_recovery_check_in"
+
+
 @dataclass(frozen=True, slots=True)
 class Goal:
     title: str

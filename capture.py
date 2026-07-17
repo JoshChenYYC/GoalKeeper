@@ -8,7 +8,6 @@ authoritative state and invokes its typed ReasoningPort in the same worker.
 from __future__ import annotations
 
 import argparse
-import base64
 import json
 import os
 import sys
@@ -19,104 +18,20 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
-import cv2
-from openai import OpenAI
-
+from camera_adapter import OpenCVPreviewAdapter, open_camera
 from controller import FocusSessionController
 from domain import SessionContract, SessionState, SnapshotStatus
+from perception import (
+    OBSERVATION_SCHEMA,
+    PERCEPTION_PROMPT,
+    OpenAIPerceptionAdapter,
+    jpeg_data_url,
+)
+from ports import CameraPort, CameraPreviewPort, PerceptionPort
 
 
 DEFAULT_INTERVAL_SECONDS = 10.0
 DEFAULT_MODEL = "gpt-5.6-luna"
-WARMUP_FRAMES = 8
-PREFLIGHT_WINDOW = "GoalKeeper Camera Preflight"
-
-PERCEPTION_PROMPT = """\
-You are the neutral perception component of an accountability application.
-Describe only visible facts and cues in this single room snapshot. You do not
-know the user's goal, deviation profile, sensitivity, session history, or
-intervention state. Do not judge whether behavior is appropriate, distracting,
-or goal-consistent, and do not recommend an action.
-
-Report image limitations explicitly. Count every visible person; use null when
-image quality or occlusion makes the count indeterminate. Use direct, partial,
-inferred, or unavailable to describe visual support rather than a probability.
-Keep behavior labels neutral and concise. An empty observations list is valid
-when no supported behavioral cue is visible.
-"""
-
-OBSERVATION_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "image_quality": {
-            "type": "object",
-            "properties": {
-                "value": {
-                    "type": "string",
-                    "enum": ["adequate", "limited", "unusable"],
-                    "description": "Whether the scene is usable for neutral monitoring.",
-                },
-                "limitations": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Visible quality, framing, lighting, or occlusion limits.",
-                },
-            },
-            "required": ["value", "limitations"],
-            "additionalProperties": False,
-        },
-        "people_count": {
-            "anyOf": [
-                {"type": "integer", "minimum": 0},
-                {"type": "null"},
-            ],
-            "description": "Number of visible people, or null when indeterminate.",
-        },
-        "objects": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "Neutral names of notable visible objects.",
-        },
-        "observations": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "subject": {
-                        "type": "string",
-                        "description": "Neutral subject reference, such as visible_person.",
-                    },
-                    "behavior": {
-                        "type": "string",
-                        "description": "Neutral visible behavior label.",
-                    },
-                    "support": {
-                        "type": "string",
-                        "enum": ["direct", "partial", "inferred", "unavailable"],
-                    },
-                    "visual_basis": {
-                        "type": "string",
-                        "description": "Visible evidence supporting the behavior label.",
-                    },
-                    "limitations": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                    },
-                },
-                "required": [
-                    "subject",
-                    "behavior",
-                    "support",
-                    "visual_basis",
-                    "limitations",
-                ],
-                "additionalProperties": False,
-            },
-        },
-    },
-    "required": ["image_quality", "people_count", "objects", "observations"],
-    "additionalProperties": False,
-}
 
 
 @dataclass(frozen=True)
@@ -289,106 +204,59 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def encode_jpeg(frame: Any, quality: int) -> bytes:
-    """Encode one OpenCV frame to the exact JPEG bytes saved and uploaded."""
-    success, encoded = cv2.imencode(
-        ".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), quality]
-    )
-    if not success:
-        raise RuntimeError("OpenCV could not encode the captured frame as JPEG")
-    return encoded.tobytes()
+DEFAULT_CAMERA_PREVIEW = OpenCVPreviewAdapter()
 
 
-def jpeg_data_url(jpeg: bytes) -> str:
-    encoded = base64.b64encode(jpeg).decode("ascii")
-    return f"data:image/jpeg;base64,{encoded}"
-
-
-def observe_snapshot(
-    client: OpenAI,
+def encode_jpeg(
+    frame: Any,
+    quality: int,
     *,
-    jpeg: bytes,
-    model: str,
-    detail: str,
-) -> dict[str, Any]:
-    """Send one JPEG to OpenAI and return its schema-constrained observation."""
-    response = client.responses.create(
-        model=model,
-        input=[
-            {"role": "system", "content": PERCEPTION_PROMPT},
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "input_text",
-                        "text": "Return the structured observation for this snapshot.",
-                    },
-                    {
-                        "type": "input_image",
-                        "image_url": jpeg_data_url(jpeg),
-                        "detail": detail,
-                    },
-                ],
-            },
-        ],
-        text={
-            "format": {
-                "type": "json_schema",
-                "name": "room_observation",
-                "schema": OBSERVATION_SCHEMA,
-                "strict": True,
-            }
-        },
-    )
-    if not response.output_text:
-        raise RuntimeError("the perception API returned no text output")
-    try:
-        return json.loads(response.output_text)
-    except json.JSONDecodeError as error:
-        raise RuntimeError("the perception API returned invalid JSON") from error
+    preview: CameraPreviewPort | None = None,
+) -> bytes:
+    """Encode through the configured camera adapter."""
+    return (preview or DEFAULT_CAMERA_PREVIEW).encode_jpeg(frame, quality)
 
 
 def draw_preflight_status(
-    frame: Any, message: str, *, color: tuple[int, int, int] = (255, 255, 255)
+    frame: Any,
+    message: str,
+    *,
+    color: tuple[int, int, int] = (255, 255, 255),
+    preview: CameraPreviewPort | None = None,
 ) -> None:
-    """Display a camera frame with a readable preflight status overlay."""
-    preview = frame.copy()
-    cv2.rectangle(preview, (0, 0), (preview.shape[1], 52), (0, 0, 0), -1)
-    cv2.putText(
-        preview,
-        message,
-        (12, 34),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.65,
-        color,
-        2,
-        cv2.LINE_AA,
-    )
-    cv2.imshow(PREFLIGHT_WINDOW, preview)
+    (preview or DEFAULT_CAMERA_PREVIEW).draw_status(frame, message, color=color)
 
 
 def capture_setup_frame(
-    camera: cv2.VideoCapture, jpeg_quality: int
+    camera: CameraPort,
+    jpeg_quality: int,
+    *,
+    preview: CameraPreviewPort | None = None,
 ) -> tuple[datetime, bytes, Any] | None:
     """Show live preview until Space captures a frame or Esc cancels."""
     print(
         "Camera preflight: press Space to capture this view or Esc to cancel.",
         flush=True,
     )
+    camera_preview = preview or DEFAULT_CAMERA_PREVIEW
     while True:
         success, frame = camera.read()
         if not success:
             raise RuntimeError("camera stopped responding during preflight")
 
-        draw_preflight_status(frame, "SPACE: capture   ESC: cancel")
-        key = cv2.waitKey(30) & 0xFF
+        draw_preflight_status(
+            frame, "SPACE: capture   ESC: cancel", preview=camera_preview
+        )
+        key = camera_preview.wait_key(30)
         if key == 27:
             return None
         if key == 32:
             captured_at = datetime.now().astimezone()
-            jpeg = encode_jpeg(frame, jpeg_quality)
-            draw_preflight_status(frame, "Analyzing camera setup...")
-            cv2.waitKey(1)
+            jpeg = encode_jpeg(frame, jpeg_quality, preview=camera_preview)
+            draw_preflight_status(
+                frame, "Analyzing camera setup...", preview=camera_preview
+            )
+            camera_preview.wait_key(1)
             return captured_at, jpeg, frame
 
 
@@ -410,30 +278,29 @@ def preflight_validation_error(observation: dict[str, Any]) -> str | None:
 
 
 def run_camera_preflight(
-    client: OpenAI,
-    camera: cv2.VideoCapture,
+    perception: PerceptionPort,
+    camera: CameraPort,
     args: argparse.Namespace,
     *,
     input_func: Callable[[str], str] = input,
+    preview: CameraPreviewPort | None = None,
 ) -> PreflightCapture | None:
     """Capture, validate, and explicitly confirm the camera setup."""
+    camera_preview = preview or DEFAULT_CAMERA_PREVIEW
     window_created = False
     try:
-        cv2.namedWindow(PREFLIGHT_WINDOW, cv2.WINDOW_NORMAL)
+        camera_preview.open()
         window_created = True
         while True:
-            setup = capture_setup_frame(camera, args.jpeg_quality)
+            setup = capture_setup_frame(
+                camera, args.jpeg_quality, preview=camera_preview
+            )
             if setup is None:
                 return None
             captured_at, jpeg, frame = setup
 
             try:
-                observation = observe_snapshot(
-                    client,
-                    jpeg=jpeg,
-                    model=args.model,
-                    detail=args.detail,
-                )
+                observation = dict(perception.observe(jpeg))
             except Exception as error:
                 message = f"camera validation failed: {error}"
                 print(message, file=sys.stderr, flush=True)
@@ -441,8 +308,9 @@ def run_camera_preflight(
                     frame,
                     "Validation error - returning to preview",
                     color=(0, 0, 255),
+                    preview=camera_preview,
                 )
-                cv2.waitKey(750)
+                camera_preview.wait_key(750)
                 continue
 
             validation_error = preflight_validation_error(observation)
@@ -452,16 +320,18 @@ def run_camera_preflight(
                     frame,
                     "Setup rejected - returning to preview",
                     color=(0, 0, 255),
+                    preview=camera_preview,
                 )
-                cv2.waitKey(750)
+                camera_preview.wait_key(750)
                 continue
 
             draw_preflight_status(
                 frame,
                 "Setup valid - confirm in the terminal",
                 color=(0, 255, 0),
+                preview=camera_preview,
             )
-            cv2.waitKey(1)
+            camera_preview.wait_key(1)
             print("Camera setup is usable and exactly one person is visible.", flush=True)
             while True:
                 choice = input_func(
@@ -481,10 +351,7 @@ def run_camera_preflight(
                 print("Enter y, r, or q.", flush=True)
     finally:
         if window_created:
-            try:
-                cv2.destroyWindow(PREFLIGHT_WINDOW)
-            except cv2.error:
-                pass
+            camera_preview.close()
 
 
 def write_preflight_artifacts(session_dir: Path, preflight: PreflightCapture) -> None:
@@ -545,36 +412,16 @@ def print_observation(record: dict[str, Any]) -> None:
     )
 
 
-def open_camera(index: int) -> cv2.VideoCapture:
-    camera = cv2.VideoCapture(index)
-    if not camera.isOpened():
-        camera.release()
-        raise RuntimeError(
-            f"could not open camera {index}; check that it is connected and not in use"
-        )
-
-    for _ in range(WARMUP_FRAMES):
-        success, _ = camera.read()
-        if not success:
-            camera.release()
-            raise RuntimeError(f"camera {index} stopped responding during warmup")
-    return camera
-
-
 def process_jpeg(
-    client: OpenAI,
+    perception: PerceptionPort,
     *,
     sequence: int,
     jpeg: bytes,
     captured_at: datetime,
     image_name: str,
-    model: str,
-    detail: str,
     observation_log: JsonlLog | None = None,
 ) -> dict[str, Any]:
-    observation = observe_snapshot(
-        client, jpeg=jpeg, model=model, detail=detail
-    )
+    observation = dict(perception.observe(jpeg))
     record = make_record(
         sequence=sequence,
         captured_at=captured_at,
@@ -587,13 +434,11 @@ def process_jpeg(
 
 
 def upload_snapshots(
-    client: OpenAI,
+    perception: PerceptionPort,
     *,
     buffer: LatestSnapshotBuffer,
     observation_log: JsonlLog,
     event_log: JsonlLog,
-    model: str,
-    detail: str,
     stats: UploadStats,
     controller: FocusSessionController | None = None,
 ) -> None:
@@ -605,13 +450,11 @@ def upload_snapshots(
 
         try:
             record = process_jpeg(
-                client,
+                perception,
                 sequence=snapshot.sequence,
                 jpeg=snapshot.jpeg,
                 captured_at=snapshot.captured_at,
                 image_name=snapshot.image_name,
-                model=model,
-                detail=detail,
             )
         except Exception as error:
             stats.api_errors += 1
@@ -693,7 +536,9 @@ def upload_snapshots(
                 )
 
 
-def run_image_smoke_test(client: OpenAI, args: argparse.Namespace) -> None:
+def run_image_smoke_test(
+    perception: PerceptionPort, args: argparse.Namespace
+) -> None:
     image_path = args.image
     if not image_path.is_file():
         raise RuntimeError(f"image does not exist: {image_path}")
@@ -701,27 +546,27 @@ def run_image_smoke_test(client: OpenAI, args: argparse.Namespace) -> None:
         raise RuntimeError("--image currently accepts JPEG files only")
 
     record = process_jpeg(
-        client,
+        perception,
         sequence=1,
         jpeg=image_path.read_bytes(),
         captured_at=datetime.now().astimezone(),
         image_name=image_path.name,
-        model=args.model,
-        detail=args.detail,
     )
     print(json.dumps(record, indent=2, ensure_ascii=False))
 
 
 def run_capture_session(
-    client: OpenAI,
+    perception: PerceptionPort,
     args: argparse.Namespace,
     *,
     controller: FocusSessionController | None = None,
     contract: SessionContract | None = None,
+    camera_factory: Callable[[int], CameraPort] | None = None,
+    preview: CameraPreviewPort | None = None,
 ) -> bool:
     if (controller is None) != (contract is None):
         raise ValueError("controller and contract must be provided together")
-    camera = open_camera(args.camera)
+    camera = (camera_factory or open_camera)(args.camera)
     buffer: LatestSnapshotBuffer | None = None
     uploader: threading.Thread | None = None
     upload_stats = UploadStats()
@@ -732,7 +577,9 @@ def run_capture_session(
     controller_session = None
 
     try:
-        preflight = run_camera_preflight(client, camera, args)
+        preflight = run_camera_preflight(
+            perception, camera, args, preview=preview
+        )
         if preflight is None:
             print("Camera preflight canceled; monitoring did not start.", flush=True)
             return False
@@ -754,12 +601,10 @@ def run_capture_session(
         uploader = threading.Thread(
             target=upload_snapshots,
             kwargs={
-                "client": client,
+                "perception": perception,
                 "buffer": buffer,
                 "observation_log": observation_log,
                 "event_log": event_log,
-                "model": args.model,
-                "detail": args.detail,
                 "stats": upload_stats,
                 "controller": controller,
             },
@@ -811,7 +656,7 @@ def run_capture_session(
                 )
                 continue
 
-            jpeg = encode_jpeg(frame, args.jpeg_quality)
+            jpeg = encode_jpeg(frame, args.jpeg_quality, preview=preview)
             image_name = f"{captured_at:%Y%m%d-%H%M%S-%f}.jpg"
             (session_dir / image_name).write_bytes(jpeg)
             captured += 1
@@ -903,12 +748,17 @@ def main(argv: list[str] | None = None) -> int:
         print("error: OPENAI_API_KEY is not set", file=sys.stderr)
         return 2
 
+    from openai import OpenAI
+
     client = OpenAI(timeout=args.api_timeout, max_retries=args.max_retries)
+    perception = OpenAIPerceptionAdapter(
+        client, model=args.model, detail=args.detail
+    )
     try:
         if args.image is not None:
-            run_image_smoke_test(client, args)
+            run_image_smoke_test(perception, args)
         else:
-            run_capture_session(client, args)
+            run_capture_session(perception, args)
     except Exception as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
