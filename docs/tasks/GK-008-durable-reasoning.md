@@ -1,8 +1,9 @@
 # GK-008 — Durable Reasoning core and deterministic fake
 
-**Status:** In progress
+**Status:** Done
 **Owner:** Codex `/root/gk008_reasoning`
 **Branch:** `task/GK-008-durable-reasoning`
+**Merged via:** PR #8
 **Depends on:** GK-003, GK-005
 **Suggested branch:** `task/GK-008-durable-reasoning`
 
