@@ -857,6 +857,12 @@ public sealed class MonitoringPipelineTests
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        public Task<ReasoningCommitResult> AppendRejectedReasoningEvaluationAsync(
+            ReasoningEvaluationWrite evaluation,
+            string rejectionReason,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task<IReadOnlyList<ReasoningEvaluationView>> GetRecentReasoningEvaluationsAsync(
             Guid sessionId,
             int limit,
