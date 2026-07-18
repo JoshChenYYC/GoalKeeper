@@ -87,6 +87,11 @@ public interface IGoalKeeperRepository
         ReasoningCommitRequest request,
         CancellationToken cancellationToken = default);
 
+    Task<ReasoningCommitResult> AppendRejectedReasoningEvaluationAsync(
+        ReasoningEvaluationWrite evaluation,
+        string rejectionReason,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<ReasoningEvaluationView>> GetRecentReasoningEvaluationsAsync(
         Guid sessionId,
         int limit,

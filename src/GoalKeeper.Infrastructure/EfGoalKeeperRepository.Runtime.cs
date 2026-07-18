@@ -335,7 +335,7 @@ public sealed partial class EfGoalKeeperRepository
         if (session.Version != request.ExpectedSessionVersion)
         {
             await transaction.RollbackAsync(cancellationToken);
-            return await AppendRejectedEvaluationAsync(
+            return await AppendRejectedReasoningEvaluationAsync(
                 request.Evaluation,
                 "stale_session_version",
                 cancellationToken);
@@ -379,7 +379,7 @@ public sealed partial class EfGoalKeeperRepository
         catch (DbUpdateConcurrencyException)
         {
             await transaction.RollbackAsync(cancellationToken);
-            return await AppendRejectedEvaluationAsync(
+            return await AppendRejectedReasoningEvaluationAsync(
                 request.Evaluation,
                 "stale_session_version",
                 cancellationToken);
@@ -387,7 +387,7 @@ public sealed partial class EfGoalKeeperRepository
         catch (DbUpdateException)
         {
             await transaction.RollbackAsync(cancellationToken);
-            return await AppendRejectedEvaluationAsync(
+            return await AppendRejectedReasoningEvaluationAsync(
                 request.Evaluation,
                 "storage_conflict",
                 cancellationToken);
@@ -436,11 +436,13 @@ public sealed partial class EfGoalKeeperRepository
         await db.SaveChangesAsync(cancellationToken);
     }
 
-    private async Task<ReasoningCommitResult> AppendRejectedEvaluationAsync(
+    public async Task<ReasoningCommitResult> AppendRejectedReasoningEvaluationAsync(
         ReasoningEvaluationWrite evaluation,
-        string reason,
-        CancellationToken cancellationToken)
+        string rejectionReason,
+        CancellationToken cancellationToken = default)
     {
+        rejectionReason = Required(rejectionReason, "Reasoning rejection reason");
+        _ = ToEntity(evaluation, accepted: false, rejectionReason);
         await using var rejectionDb = await factory.CreateDbContextAsync(cancellationToken);
         var currentVersion = await rejectionDb.FocusSessions.Where(x => x.Id == evaluation.SessionId)
             .Select(x => (long?)x.Version)
@@ -448,11 +450,12 @@ public sealed partial class EfGoalKeeperRepository
             ?? throw new KeyNotFoundException("Focus Session not found.");
         if (!await rejectionDb.ReasoningEvaluations.AnyAsync(x => x.Id == evaluation.Id, cancellationToken))
         {
-            rejectionDb.ReasoningEvaluations.Add(ToEntity(evaluation, accepted: false, reason));
+            rejectionDb.ReasoningEvaluations.Add(
+                ToEntity(evaluation, accepted: false, rejectionReason));
             await rejectionDb.SaveChangesAsync(cancellationToken);
         }
 
-        return new(false, reason, currentVersion);
+        return new(false, rejectionReason, currentVersion);
     }
 
     private static async Task<SessionSetupEntity> LoadSetupAsync(
