@@ -3,6 +3,7 @@ using GoalKeeper.Application.Monitoring;
 using GoalKeeper.Application.Perception;
 using GoalKeeper.Domain;
 using GoalKeeper.Infrastructure;
+using System.Diagnostics;
 using System.Text;
 
 namespace GoalKeeper.Integration.Tests;
@@ -364,17 +365,18 @@ public sealed class MonitoringPipelineTests
 
     private static async Task EventuallyAsync(Func<bool> condition)
     {
-        for (var attempt = 0; attempt < 10_000; attempt++)
+        var startedAt = Stopwatch.GetTimestamp();
+        while (Stopwatch.GetElapsedTime(startedAt) < TimeSpan.FromSeconds(5))
         {
             if (condition())
             {
                 return;
             }
 
-            await Task.Yield();
+            await Task.Delay(1);
         }
 
-        Assert.Fail("The deterministic asynchronous condition was not reached.");
+        Assert.Fail("The asynchronous condition was not reached within five seconds.");
     }
 
     private sealed class MutableClock : IClock

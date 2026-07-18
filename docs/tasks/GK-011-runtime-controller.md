@@ -1,6 +1,6 @@
 # GK-011 — End-to-end session runtime controller
 
-**Status:** Blocked
+**Status:** Ready
 **Depends on:** GK-007, GK-008, GK-010
 **Suggested branch:** `task/GK-011-runtime-controller`
 

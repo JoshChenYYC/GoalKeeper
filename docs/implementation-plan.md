@@ -18,8 +18,11 @@ The Phase 1 and 2 foundation and the first delivery wave are implemented in .NET
 - A framework-independent deterministic domain kernel owns the Focus Timer and documented Focus Session states, including validated runtime snapshot/rehydration and an exhaustive atomic command/state matrix.
 - EF Core and SQLite persist setup and complete runtime state, enforce one active Focus Session globally, retain rejected evaluations separately, and expose bounded application-facing history/query contracts.
 - Provider-neutral camera acquisition and Perception v1 contracts have deterministic hardware/network-free fakes and contract suites.
+- Fixed-cadence monitoring retains auditable snapshots, applies newest-frame backpressure, persists only fresh validated Observations, and reports technical health without behavioral evidence.
+- Durable Reasoning maintains bounded evidence-linked memory, records accepted and rejected evaluations, and provides deterministic scripts for controller scenarios.
+- The scripted Recovery boundary validates every bounded Check-in outcome and persists complete turn metadata without provider, audio, or network dependencies.
 - The interactive-server Blazor UI supports Goal, Deviation Profile, Session Contract, and ready Session Setup workflows.
-- Hosted Perception, capture scheduling, durable Reasoning, Recovery, and the runtime controller remain assigned work.
+- Hosted Perception, hosted Reasoning, the end-to-end runtime controller, natural voice, and live/review UI remain assigned work.
 - The retained Python reference and current .NET foundation both have automated suites that run without hardware, provider credentials, or network calls.
 
 ## Target architecture
