@@ -24,10 +24,10 @@ This directory contains the remaining GoalKeeper roadmap as independently assign
 | [GK-008](./GK-008-durable-reasoning.md) | Durable Reasoning core and deterministic fake | Done | GK-003, GK-005 | Bounded evidence-linked decisions |
 | [GK-009](./GK-009-hosted-reasoning.md) | Hosted Reasoning adapter | Blocked | GK-002, GK-008 | Versioned provider integration |
 | [GK-010](./GK-010-scripted-recovery.md) | Scripted Recovery boundary | Done | GK-003 | Deterministic Recovery proposals |
-| [GK-011](./GK-011-runtime-controller.md) | End-to-end session runtime controller | In progress | GK-007, GK-008, GK-010 | Complete fake-driven lifecycle |
+| [GK-011](./GK-011-runtime-controller.md) | End-to-end session runtime controller | Done | GK-007, GK-008, GK-010 | Complete fake-driven lifecycle |
 | [GK-012](./GK-012-voice-recovery.md) | Natural voice Recovery Check-in | Blocked | GK-002, GK-010, GK-011 | Bounded voice interaction |
-| [GK-013](./GK-013-live-session-ui.md) | Live Focus Session UI | Blocked | GK-011 | Preflight and live controls |
-| [GK-014](./GK-014-review-history-ui.md) | Review, history, storage, and deletion UI | Blocked | GK-003, GK-011 | Complete post-session workflow |
+| [GK-013](./GK-013-live-session-ui.md) | Live Focus Session UI | Done | GK-011 | Preflight and live controls |
+| [GK-014](./GK-014-review-history-ui.md) | Review, history, storage, and deletion UI | Ready | GK-003, GK-011 | Complete post-session workflow |
 | [GK-015](./GK-015-configuration-log-safety.md) | Configuration, logging, and failure safety | Blocked | GK-003, GK-006, GK-009, GK-011, GK-012 | Validated safe operations |
 | [GK-016](./GK-016-acceptance-soak.md) | Acceptance, soak, tuning, and closeout | Blocked | GK-001, GK-002, GK-006, GK-007, GK-009, GK-011–GK-015 | Prototype-readiness evidence |
 
