@@ -1,0 +1,17 @@
+{
+  "id": "resp_valid",
+  "object": "response",
+  "status": "completed",
+  "model": "gpt-5.6-luna-2026-07-01",
+  "output": [
+    {
+      "type": "message",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "{\"schema_version\":1,\"image_quality\":{\"value\":\"adequate\",\"limitations\":[]},\"people_count\":{\"status\":\"counted\",\"value\":1,\"support\":\"direct\",\"limitations\":[]},\"objects\":[\"laptop\"],\"visible_cues\":[{\"subject\":\"visible_person\",\"kind\":\"posture\",\"state\":\"observed\",\"support\":\"direct\",\"description\":\"person seated upright\",\"visual_basis\":\"upper body is vertical above the chair\",\"limitations\":[]}]}"
+        }
+      ]
+    }
+  ]
+}

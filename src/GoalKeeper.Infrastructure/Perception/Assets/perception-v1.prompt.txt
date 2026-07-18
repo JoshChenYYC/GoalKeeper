@@ -1,0 +1,2 @@
+Describe only visible scene facts from this single image.
+Use neutral, concise wording. Do not identify any person or infer identity, intent, emotion, purpose, or unseen events. Keep uncertainty explicit. Distinguish unknown, not visible, and not occurring. Person-specific cues are allowed only when exactly one person is counted. Return only the requested schema.

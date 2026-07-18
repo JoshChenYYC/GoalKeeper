@@ -1,0 +1,115 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "image_quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "type": "string",
+          "enum": ["adequate", "limited", "unusable"]
+        },
+        "limitations": {
+          "type": "array",
+          "items": { "type": "string" },
+          "maxItems": 8
+        }
+      },
+      "required": ["value", "limitations"]
+    },
+    "people_count": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["counted", "not_visible", "unknown"]
+        },
+        "value": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 20
+        },
+        "support": {
+          "type": "string",
+          "enum": ["direct", "partial", "inferred", "unavailable"]
+        },
+        "limitations": {
+          "type": "array",
+          "items": { "type": "string" },
+          "maxItems": 8
+        }
+      },
+      "required": ["status", "value", "support", "limitations"]
+    },
+    "objects": {
+      "type": "array",
+      "items": { "type": "string" },
+      "maxItems": 32
+    },
+    "visible_cues": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "subject": {
+            "type": "string",
+            "enum": ["visible_person", "scene"]
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "position",
+              "orientation",
+              "posture",
+              "gaze",
+              "hand_position",
+              "object_relation",
+              "motion",
+              "visibility",
+              "other_visible"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": ["observed", "not_visible", "not_occurring", "unknown"]
+          },
+          "support": {
+            "type": "string",
+            "enum": ["direct", "partial", "inferred", "unavailable"]
+          },
+          "description": { "type": "string" },
+          "visual_basis": { "type": ["string", "null"] },
+          "limitations": {
+            "type": "array",
+            "items": { "type": "string" },
+            "maxItems": 8
+          }
+        },
+        "required": [
+          "subject",
+          "kind",
+          "state",
+          "support",
+          "description",
+          "visual_basis",
+          "limitations"
+        ]
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "image_quality",
+    "people_count",
+    "objects",
+    "visible_cues"
+  ]
+}

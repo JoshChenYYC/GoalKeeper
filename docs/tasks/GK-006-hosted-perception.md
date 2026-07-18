@@ -1,6 +1,8 @@
 # GK-006 — Hosted Perception adapter
 
-**Status:** Blocked
+**Status:** In progress
+**Owner:** Codex `/root`
+**Branch:** `task/GK-006-hosted-perception`
 **Depends on:** GK-002, GK-005
 **Suggested branch:** `task/GK-006-hosted-perception`
 
