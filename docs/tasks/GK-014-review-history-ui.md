@@ -1,6 +1,6 @@
 # GK-014 — Review, history, storage, and deletion UI
 
-**Status:** Blocked
+**Status:** Ready
 **Depends on:** GK-003, GK-011
 **Suggested branch:** `task/GK-014-review-history-ui`
 
