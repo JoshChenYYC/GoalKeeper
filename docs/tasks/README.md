@@ -15,7 +15,7 @@ This directory contains the remaining GoalKeeper roadmap as independently assign
 | ID | Task | Current status | Depends on | Primary output |
 |---|---|---|---|---|
 | [GK-001](./GK-001-quality-gate.md) | Reproducible quality gate and CI | Done | — | Offline-safe Python/.NET CI |
-| [GK-002](./GK-002-provider-decisions.md) | Provider, model, privacy, and live-smoke decisions | Human gate | — | Accepted ADRs and smoke evidence |
+| [GK-002](./GK-002-provider-decisions.md) | Provider, model, privacy, and live-smoke decisions | In progress | — | Accepted ADRs and smoke evidence |
 | [GK-003](./GK-003-runtime-persistence.md) | Runtime state and persistence foundation | Done | — | Recoverable atomic runtime contract |
 | [GK-004](./GK-004-camera-preflight.md) | .NET camera acquisition and preflight input | Done | — | Provider-neutral camera adapter |
 | [GK-005](./GK-005-perception-contract.md) | Perception schema, validator, port, and fake | Done | — | Provider-neutral Observation contract |

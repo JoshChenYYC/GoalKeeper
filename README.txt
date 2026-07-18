@@ -59,6 +59,14 @@ python -m pip install -r requirements.txt
 $env:OPENAI_API_KEY="your-api-key"
 ```
 
+Hosted provider, model, privacy, and configuration decisions are recorded in
+`docs/adr/0002-openai-provider-and-model-stack.md` and
+`docs/provider-configuration.md`. Selected room images and bounded Recovery
+audio are processed by the OpenAI API. API data is not used for training unless
+the organization opts in, but standard provider abuse-monitoring retention may
+last up to 30 days. A session must not make hosted requests without explicit
+consent from every person who may be captured.
+
 Start a monitored capture session:
 
 ```powershell
