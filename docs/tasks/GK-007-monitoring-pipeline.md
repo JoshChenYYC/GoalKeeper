@@ -1,6 +1,8 @@
 # GK-007 — Capture/Perception pipeline and monitoring health
 
-**Status:** Ready
+**Status:** In progress
+**Owner:** Codex `/root/gk007_monitoring`
+**Branch:** `task/GK-007-monitoring-pipeline`
 **Depends on:** GK-003, GK-004, GK-005
 **Suggested branch:** `task/GK-007-monitoring-pipeline`
 
