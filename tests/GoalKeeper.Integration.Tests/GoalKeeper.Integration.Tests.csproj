@@ -24,6 +24,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Fixtures\Perception\*.json" />
+    <EmbeddedResource Include="Fixtures\Reasoning\*.json" />
   </ItemGroup>
 
   <ItemGroup>

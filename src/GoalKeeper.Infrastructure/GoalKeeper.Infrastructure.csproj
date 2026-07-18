@@ -20,6 +20,8 @@
   <ItemGroup>
     <EmbeddedResource Include="Perception\Assets\*.json" />
     <EmbeddedResource Include="Perception\Assets\*.txt" />
+    <EmbeddedResource Include="Reasoning\Assets\*.json" />
+    <EmbeddedResource Include="Reasoning\Assets\*.txt" />
   </ItemGroup>
 
   <PropertyGroup>

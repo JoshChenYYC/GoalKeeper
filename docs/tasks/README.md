@@ -22,7 +22,7 @@ This directory contains the remaining GoalKeeper roadmap as independently assign
 | [GK-006](./GK-006-hosted-perception.md) | Hosted Perception adapter | In progress | GK-002, GK-005 | Versioned image-provider integration |
 | [GK-007](./GK-007-monitoring-pipeline.md) | Capture/Perception pipeline and monitoring health | Done | GK-003, GK-004, GK-005 | Fresh persisted observation stream |
 | [GK-008](./GK-008-durable-reasoning.md) | Durable Reasoning core and deterministic fake | Done | GK-003, GK-005 | Bounded evidence-linked decisions |
-| [GK-009](./GK-009-hosted-reasoning.md) | Hosted Reasoning adapter | Blocked | GK-002, GK-008 | Versioned provider integration |
+| [GK-009](./GK-009-hosted-reasoning.md) | Hosted Reasoning adapter | In progress | GK-002, GK-008 | Versioned provider integration |
 | [GK-010](./GK-010-scripted-recovery.md) | Scripted Recovery boundary | Done | GK-003 | Deterministic Recovery proposals |
 | [GK-011](./GK-011-runtime-controller.md) | End-to-end session runtime controller | Done | GK-007, GK-008, GK-010 | Complete fake-driven lifecycle |
 | [GK-012](./GK-012-voice-recovery.md) | Natural voice Recovery Check-in | Blocked | GK-002, GK-010, GK-011 | Bounded voice interaction |

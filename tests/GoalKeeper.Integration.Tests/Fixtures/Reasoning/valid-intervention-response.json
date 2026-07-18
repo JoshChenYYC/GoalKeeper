@@ -1,0 +1,27 @@
+{
+  "id": "resp_reasoning_intervention",
+  "object": "response",
+  "created_at": 1784412000,
+  "status": "completed",
+  "error": null,
+  "incomplete_details": null,
+  "model": "gpt-5.6-sol",
+  "output": [
+    {
+      "id": "msg_reasoning_intervention",
+      "type": "message",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "annotations": [],
+          "text": "{\"schema_version\":1,\"session_id\":\"11111111-1111-1111-1111-111111111111\",\"session_version\":3,\"current_state\":\"focusing\",\"trigger_observation_id\":\"44444444-4444-4444-4444-444444444444\",\"decision\":\"begin_recovery_check_in\",\"intervention\":{\"listed_deviation_id\":\"33333333-3333-3333-3333-333333333333\",\"unlisted_description\":null,\"first_observation_id\":\"44444444-4444-4444-4444-444444444444\",\"latest_observation_id\":\"44444444-4444-4444-4444-444444444444\",\"key_observation_ids\":[\"44444444-4444-4444-4444-444444444444\"],\"contradictory_observation_ids\":[],\"rationale\":\"The supplied observation may support the listed deviation.\"},\"episode_updates\":[{\"key\":\"listed-deviation-episode\",\"status\":\"active\",\"listed_deviation_id\":\"33333333-3333-3333-3333-333333333333\",\"unlisted_description\":null,\"first_observation_id\":\"44444444-4444-4444-4444-444444444444\",\"latest_observation_id\":\"44444444-4444-4444-4444-444444444444\",\"key_observation_ids\":[\"44444444-4444-4444-4444-444444444444\"],\"contradictory_observation_ids\":[],\"summary\":\"One bounded observation supports the listed deviation.\"}]}"
+        }
+      ]
+    }
+  ],
+  "parallel_tool_calls": false,
+  "tool_choice": "auto",
+  "tools": []
+}
