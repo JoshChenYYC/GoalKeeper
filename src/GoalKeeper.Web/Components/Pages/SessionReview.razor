@@ -1,0 +1,161 @@
+@page "/sessions/{SessionId:guid}/review"
+@inject PostSessionPresentation PostSessionUi
+@inject NavigationManager Navigation
+
+<PageTitle>Session review · GoalKeeper</PageTitle>
+
+@if (_view is null && _error is null)
+{
+    <div class="loading-state" role="status">Loading Session Review…</div>
+}
+else if (_view is null)
+{
+    <section class="empty-state">
+        <p class="eyebrow">Review unavailable</p>
+        <h1>This Focus Session could not be reviewed.</h1>
+        <p>@_error</p>
+        <a class="button" href="/">Return to goals</a>
+    </section>
+}
+else if (_view.State is not (FocusSessionState.Fulfilled or FocusSessionState.EndedEarly))
+{
+    <section class="empty-state">
+        <p class="eyebrow">Session in progress</p>
+        <h1>The review opens after the Focus Session ends.</h1>
+        <div class="actions centered">
+            <a class="button" href="@($"/sessions/{SessionId}/live")">Return to session</a>
+            <a class="button secondary" href="/">Return to goals</a>
+        </div>
+    </section>
+}
+else if (_view.Review is not null)
+{
+    <section class="review-complete">
+        <p class="eyebrow">Reflection saved</p>
+        <h1>This Session Review is complete.</h1>
+        <p>Your optional reflection was accepted once and is now part of the local session history.</p>
+        <div class="actions">
+            <a class="button" href="/">Return to goals</a>
+            <a class="button secondary" href="@($"/goals/{_view.GoalId}/history")">View Goal history</a>
+        </div>
+    </section>
+}
+else
+{
+    <header class="review-heading">
+        <p class="eyebrow">Optional Session Review</p>
+        <h1>How did this session go?</h1>
+        <p>Reflect on <strong>@_view.GoalTitle</strong>. This is optional and does not grade your work.</p>
+    </header>
+
+    <section class="review-card">
+        <EditForm Model="_form" OnValidSubmit="SubmitAsync">
+            <DataAnnotationsValidator />
+            <ValidationSummary />
+
+            <fieldset>
+                <legend>Did you make meaningful progress?</legend>
+                <InputRadioGroup Name="progress" @bind-Value="_form.MeaningfulProgress">
+                    <label class="choice"><InputRadio Value="true" /> Yes</label>
+                    <label class="choice"><InputRadio Value="false" /> Not this time</label>
+                </InputRadioGroup>
+            </fieldset>
+
+            <label>
+                Overall Intervention helpfulness
+                <InputSelect @bind-Value="_form.Helpfulness">
+                    <option value="@InterventionHelpfulness.NotApplicable">Not applicable</option>
+                    <option value="@InterventionHelpfulness.Helpful">Helpful</option>
+                    <option value="@InterventionHelpfulness.Mixed">Mixed</option>
+                    <option value="@InterventionHelpfulness.Unhelpful">Unhelpful</option>
+                </InputSelect>
+            </label>
+
+            <label>
+                Note <span class="field-hint">Optional, up to 2,000 characters</span>
+                <InputTextArea rows="5" @bind-Value="_form.Note" />
+            </label>
+
+            <label class="confirm"><InputCheckbox @bind-Value="_form.MarkGoalComplete" /> Mark this Goal complete</label>
+
+            @if (_error is not null)
+            {
+                <div class="alert error" role="alert">@_error</div>
+            }
+
+            <div class="actions">
+                <button type="submit" disabled="@_submitting">Save review</button>
+                <button type="button" class="secondary" disabled="@_submitting" @onclick="Skip">Skip and return to goals</button>
+                <a class="button secondary" href="@($"/goals/{_view.GoalId}/history")">View Goal history</a>
+            </div>
+        </EditForm>
+    </section>
+}
+
+@code {
+    [Parameter] public Guid SessionId { get; set; }
+
+    private SessionReviewPageView? _view;
+    private readonly ReviewForm _form = new();
+    private string? _error;
+    private bool _submitting;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _error = null;
+        try
+        {
+            _view = await PostSessionUi.GetReviewAsync(SessionId);
+            if (_view is null)
+            {
+                _error = "Focus Session not found.";
+            }
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (_submitting)
+        {
+            return;
+        }
+
+        _submitting = true;
+        _error = null;
+        try
+        {
+            await PostSessionUi.SubmitReviewAsync(
+                SessionId,
+                _form.MeaningfulProgress,
+                _form.Helpfulness,
+                _form.Note,
+                _form.MarkGoalComplete);
+            Navigation.NavigateTo("/");
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+
+    private void Skip() => Navigation.NavigateTo("/");
+
+    private sealed class ReviewForm
+    {
+        public bool MeaningfulProgress { get; set; } = true;
+        public InterventionHelpfulness Helpfulness { get; set; } = InterventionHelpfulness.NotApplicable;
+
+        [System.ComponentModel.DataAnnotations.StringLength(2000)]
+        public string? Note { get; set; }
+
+        public bool MarkGoalComplete { get; set; }
+    }
+}

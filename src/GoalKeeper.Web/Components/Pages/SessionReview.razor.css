@@ -1,0 +1,46 @@
+.review-heading,
+.review-card,
+.review-complete {
+    max-width: 46rem;
+}
+
+.review-heading > p:last-child,
+.review-complete > p {
+    color: var(--muted);
+}
+
+.review-card,
+.review-complete {
+    padding: clamp(1.25rem, 4vw, 2rem);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--paper);
+    box-shadow: var(--shadow);
+}
+
+fieldset {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .75rem 1.5rem;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+legend {
+    width: 100%;
+    margin-bottom: .6rem;
+    color: #384038;
+    font-size: .9rem;
+    font-weight: 720;
+}
+
+.choice {
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+}
+
+.choice input {
+    width: auto;
+}
