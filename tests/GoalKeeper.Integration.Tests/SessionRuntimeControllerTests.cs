@@ -141,6 +141,11 @@ public sealed class SessionRuntimeControllerTests
             status.SessionId!.Value,
             MonitoringHealthEventKind.TechnicalGraceExpired,
             harness.Clock));
+        harness.Controller.Report(Health(
+            status.SessionId.Value,
+            MonitoringHealthEventKind.TechnicalGraceExpired,
+            harness.Clock,
+            MonitoringTechnicalSource.Reasoning));
         scheduler.Tick();
         await EventuallyAsync(async () =>
             (await harness.Controller.GetStatusAsync()).State ==
@@ -151,6 +156,15 @@ public sealed class SessionRuntimeControllerTests
             status.SessionId.Value,
             MonitoringHealthEventKind.Recovered,
             harness.Clock));
+        scheduler.Tick();
+        await EventuallyAsync(async () =>
+            (await harness.Controller.GetStatusAsync()).State ==
+            FocusSessionState.MonitoringUnavailable);
+        harness.Controller.Report(Health(
+            status.SessionId.Value,
+            MonitoringHealthEventKind.Recovered,
+            harness.Clock,
+            MonitoringTechnicalSource.Reasoning));
         scheduler.Tick();
         await EventuallyAsync(async () =>
             (await harness.Controller.GetStatusAsync()).State ==
@@ -331,11 +345,12 @@ public sealed class SessionRuntimeControllerTests
     private static MonitoringHealthEvent Health(
         Guid sessionId,
         MonitoringHealthEventKind kind,
-        TestClock clock) =>
+        TestClock clock,
+        MonitoringTechnicalSource source = MonitoringTechnicalSource.Perception) =>
         new(
             sessionId,
             kind,
-            MonitoringTechnicalSource.Perception,
+            source,
             clock.UtcNow,
             clock.MonotonicNow,
             clock.UtcNow,

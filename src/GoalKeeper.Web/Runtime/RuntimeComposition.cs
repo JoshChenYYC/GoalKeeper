@@ -94,6 +94,10 @@ public static class RuntimeServiceCollectionExtensions
 public sealed class RegistryRuntimeWorkerCoordinator(
     SessionRuntimeWorkerRegistry registry) : ISessionRuntimeWorkerCoordinator
 {
+    public Task WaitUntilAvailableAsync(
+        CancellationToken cancellationToken = default) =>
+        registry.WaitUntilAvailableAsync(cancellationToken);
+
     public void Start(Guid sessionId)
     {
         if (registry.ActiveSessionId == sessionId)

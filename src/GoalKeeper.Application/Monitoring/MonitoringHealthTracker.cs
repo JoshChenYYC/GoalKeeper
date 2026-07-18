@@ -9,7 +9,7 @@ public sealed class MonitoringHealthTracker(
     IMonitoringHealthEventSink eventSink)
 {
     private readonly object _sync = new();
-    private FailureState? _failure;
+    private readonly Dictionary<MonitoringTechnicalSource, FailureState> _failures = [];
 
     public void ReportFailure(MonitoringTechnicalSource source)
     {
@@ -17,20 +17,24 @@ public sealed class MonitoringHealthTracker(
         {
             var nowUtc = clock.UtcNow;
             var nowMonotonic = clock.MonotonicNow;
-            _failure ??= new(source, nowUtc, nowMonotonic);
-            _failure.ConsecutiveFailures++;
-            _failure.LatestSource = source;
-
-            if (!_failure.GraceExpired &&
-                nowMonotonic - _failure.FirstAtMonotonic >= gracePeriod)
+            if (!_failures.TryGetValue(source, out var failure))
             {
-                _failure.GraceExpired = true;
+                failure = new(nowUtc, nowMonotonic);
+                _failures.Add(source, failure);
+            }
+
+            failure.ConsecutiveFailures++;
+
+            if (!failure.GraceExpired &&
+                nowMonotonic - failure.FirstAtMonotonic >= gracePeriod)
+            {
+                failure.GraceExpired = true;
                 eventSink.Report(CreateEvent(
                     MonitoringHealthEventKind.TechnicalGraceExpired,
                     source,
                     nowUtc,
                     nowMonotonic,
-                    _failure));
+                    failure));
             }
         }
     }
@@ -39,36 +43,34 @@ public sealed class MonitoringHealthTracker(
     {
         lock (_sync)
         {
-            if (_failure is null)
+            if (!_failures.Remove(source, out var failure))
             {
                 return;
             }
 
             var nowUtc = clock.UtcNow;
             var nowMonotonic = clock.MonotonicNow;
-            if (!_failure.GraceExpired &&
-                nowMonotonic - _failure.FirstAtMonotonic >= gracePeriod)
+            if (!failure.GraceExpired &&
+                nowMonotonic - failure.FirstAtMonotonic >= gracePeriod)
             {
-                _failure.GraceExpired = true;
+                failure.GraceExpired = true;
                 eventSink.Report(CreateEvent(
                     MonitoringHealthEventKind.TechnicalGraceExpired,
-                    _failure.LatestSource,
+                    source,
                     nowUtc,
                     nowMonotonic,
-                    _failure));
+                    failure));
             }
 
-            if (_failure.GraceExpired)
+            if (failure.GraceExpired)
             {
                 eventSink.Report(CreateEvent(
                     MonitoringHealthEventKind.Recovered,
                     source,
                     nowUtc,
                     nowMonotonic,
-                    _failure));
+                    failure));
             }
-
-            _failure = null;
         }
     }
 
@@ -89,12 +91,9 @@ public sealed class MonitoringHealthTracker(
             failure.ConsecutiveFailures);
 
     private sealed class FailureState(
-        MonitoringTechnicalSource source,
         DateTimeOffset firstAtUtc,
         TimeSpan firstAtMonotonic)
     {
-        public MonitoringTechnicalSource LatestSource { get; set; } = source;
-
         public DateTimeOffset FirstAtUtc { get; } = firstAtUtc;
 
         public TimeSpan FirstAtMonotonic { get; } = firstAtMonotonic;

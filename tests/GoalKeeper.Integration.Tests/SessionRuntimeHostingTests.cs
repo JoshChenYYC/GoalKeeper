@@ -110,6 +110,28 @@ public sealed class SessionRuntimeHostingTests
             harness.Probe.AsyncDisposalCount == 1);
     }
 
+    [Fact]
+    public async Task Availability_waits_for_the_previous_worker_to_release_its_slot()
+    {
+        await using var harness = await HostedServiceHarness.StartAsync();
+        var coordinator = new RegistryRuntimeWorkerCoordinator(harness.Registry);
+        var firstSessionId = Guid.NewGuid();
+        coordinator.Start(firstSessionId);
+        await harness.Probe.WaitForStartAsync(firstSessionId);
+
+        var availability = coordinator.WaitUntilAvailableAsync();
+        Assert.False(availability.IsCompleted);
+
+        coordinator.Cancel(firstSessionId);
+        await availability.WaitAsync(TimeSpan.FromSeconds(5));
+        var nextSessionId = Guid.NewGuid();
+        coordinator.Start(nextSessionId);
+        await harness.Probe.WaitForStartAsync(nextSessionId);
+
+        Assert.Equal(nextSessionId, harness.Registry.ActiveSessionId);
+        coordinator.Cancel(nextSessionId);
+    }
+
     private static async Task EventuallyAsync(Func<bool> condition)
     {
         var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(5);

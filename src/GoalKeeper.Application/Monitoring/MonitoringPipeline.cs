@@ -271,6 +271,7 @@ public sealed class MonitoringPipeline(
                 {
                     if (_pending is null)
                     {
+                        _processing = false;
                         return;
                     }
 

@@ -19,14 +19,14 @@ public sealed class MonitoringHealthTrackerTests
 
         tracker.ReportFailure(MonitoringTechnicalSource.Camera);
         clock.Advance(TimeSpan.FromSeconds(6));
-        tracker.ReportFailure(MonitoringTechnicalSource.Perception);
+        tracker.ReportFailure(MonitoringTechnicalSource.Camera);
         Assert.Empty(sink.Events);
 
         clock.Advance(TimeSpan.FromSeconds(4));
-        tracker.ReportFailure(MonitoringTechnicalSource.Perception);
+        tracker.ReportFailure(MonitoringTechnicalSource.Camera);
         clock.Advance(TimeSpan.FromSeconds(1));
-        tracker.ReportRecovery(MonitoringTechnicalSource.Perception);
-        tracker.ReportRecovery(MonitoringTechnicalSource.Perception);
+        tracker.ReportRecovery(MonitoringTechnicalSource.Camera);
+        tracker.ReportRecovery(MonitoringTechnicalSource.Camera);
 
         Assert.Collection(
             sink.Events,
@@ -47,6 +47,41 @@ public sealed class MonitoringHealthTrackerTests
         clock.Advance(TimeSpan.FromSeconds(2));
         tracker.ReportFailure(MonitoringTechnicalSource.Camera);
         Assert.Equal(2, sink.Events.Count);
+    }
+
+    [Fact]
+    public void Sources_keep_independent_grace_and_recovery_state()
+    {
+        var clock = new MutableClock();
+        var sink = new RecordingSink();
+        var tracker = new MonitoringHealthTracker(
+            Guid.NewGuid(),
+            TimeSpan.FromSeconds(10),
+            clock,
+            sink);
+
+        tracker.ReportFailure(MonitoringTechnicalSource.Camera);
+        tracker.ReportFailure(MonitoringTechnicalSource.Reasoning);
+        clock.Advance(TimeSpan.FromSeconds(10));
+        tracker.ReportFailure(MonitoringTechnicalSource.Camera);
+        tracker.ReportFailure(MonitoringTechnicalSource.Reasoning);
+        tracker.ReportRecovery(MonitoringTechnicalSource.Reasoning);
+
+        Assert.Collection(
+            sink.Events,
+            camera => Assert.Equal(MonitoringTechnicalSource.Camera, camera.Source),
+            reasoningExpired =>
+            {
+                Assert.Equal(MonitoringTechnicalSource.Reasoning, reasoningExpired.Source);
+                Assert.Equal(
+                    MonitoringHealthEventKind.TechnicalGraceExpired,
+                    reasoningExpired.Kind);
+            },
+            reasoningRecovered =>
+            {
+                Assert.Equal(MonitoringTechnicalSource.Reasoning, reasoningRecovered.Source);
+                Assert.Equal(MonitoringHealthEventKind.Recovered, reasoningRecovered.Kind);
+            });
     }
 
     private sealed class MutableClock : IClock

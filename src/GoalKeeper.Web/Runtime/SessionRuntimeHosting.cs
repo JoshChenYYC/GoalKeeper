@@ -106,6 +106,34 @@ public sealed class SessionRuntimeWorkerRegistry : ISessionRuntimeWorkerRegistry
         return true;
     }
 
+    public async Task WaitUntilAvailableAsync(
+        CancellationToken cancellationToken = default)
+    {
+        Task? completion;
+        lock (_sync)
+        {
+            completion = _current?.Completion;
+        }
+
+        if (completion is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await completion.WaitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // A cancelled worker still released the registry slot.
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            // A failed worker also releases the slot; the hosted service logs the failure.
+        }
+    }
+
     internal ValueTask<SessionRuntimeWorkerLease> WaitForStartAsync(
         CancellationToken cancellationToken) =>
         _requests.Reader.ReadAsync(cancellationToken);

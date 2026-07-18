@@ -38,6 +38,8 @@ public interface ISessionRuntimeScheduler
 
 public interface ISessionRuntimeWorkerCoordinator
 {
+    Task WaitUntilAvailableAsync(CancellationToken cancellationToken = default);
+
     void Start(Guid sessionId);
 
     void Cancel(Guid sessionId);

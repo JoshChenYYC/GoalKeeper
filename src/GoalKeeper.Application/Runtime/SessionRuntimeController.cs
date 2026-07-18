@@ -24,6 +24,7 @@ public sealed class SessionRuntimeController(
     private readonly SemaphoreSlim _commands = new(1, 1);
     private readonly object _stateSync = new();
     private readonly ConcurrentQueue<MonitoringHealthEvent> _healthEvents = new();
+    private readonly HashSet<MonitoringTechnicalSource> _unavailableSources = [];
     private CancellationTokenSource? _monitoringCancellation;
     private Task? _monitoringTask;
     private Guid? _setupId;
@@ -181,6 +182,12 @@ public sealed class SessionRuntimeController(
                 ?? throw new KeyNotFoundException("Goal not found.");
             var settings = await repository.GetSettingsAsync(cancellationToken)
                 .ConfigureAwait(false);
+            if (workerCoordinator is not null)
+            {
+                await workerCoordinator.WaitUntilAvailableAsync(cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             var session = FocusSession.Start(
                 RuntimeAggregateFactory.RehydrateGoal(goal),
                 RuntimeAggregateFactory.RehydrateContract(setup.Contract),
@@ -203,6 +210,7 @@ public sealed class SessionRuntimeController(
                 _sessionVersion = persisted.Version;
                 _sessionState = persisted.State;
                 _technicalFailure = null;
+                _unavailableSources.Clear();
                 _reasoningHealth = new(
                     persisted.Id,
                     monitoringOptions.TechnicalGracePeriod,
@@ -528,6 +536,14 @@ public sealed class SessionRuntimeController(
         else if (result.Request is not null)
         {
             reasoningHealth?.ReportRecovery(MonitoringTechnicalSource.Reasoning);
+            lock (_stateSync)
+            {
+                if (!_unavailableSources.Contains(MonitoringTechnicalSource.Reasoning) &&
+                    _technicalFailure?.StartsWith("reasoning_", StringComparison.Ordinal) == true)
+                {
+                    _technicalFailure = null;
+                }
+            }
         }
 
         var current = await repository.GetSessionAsync(view.Id, cancellationToken)
@@ -778,8 +794,30 @@ public sealed class SessionRuntimeController(
                 continue;
             }
 
-            if (healthEvent.Kind == MonitoringHealthEventKind.TechnicalGraceExpired &&
-                current.State is FocusSessionState.Focusing or FocusSessionState.RecoveryWindow)
+            var shouldTransition = false;
+            var shouldRestore = false;
+            lock (_stateSync)
+            {
+                if (healthEvent.Kind == MonitoringHealthEventKind.TechnicalGraceExpired)
+                {
+                    _unavailableSources.Add(healthEvent.Source);
+                    _technicalFailure = string.Join(",", _unavailableSources.Order());
+                    shouldTransition =
+                        current.State is FocusSessionState.Focusing or FocusSessionState.RecoveryWindow;
+                }
+                else
+                {
+                    _unavailableSources.Remove(healthEvent.Source);
+                    shouldRestore =
+                        current.State == FocusSessionState.MonitoringUnavailable &&
+                        _unavailableSources.Count == 0;
+                    _technicalFailure = _unavailableSources.Count == 0
+                        ? null
+                        : string.Join(",", _unavailableSources.Order());
+                }
+            }
+
+            if (shouldTransition)
             {
                 await MutateAsync(
                         "monitoring.unavailable",
@@ -787,13 +825,8 @@ public sealed class SessionRuntimeController(
                         false,
                         cancellationToken)
                     .ConfigureAwait(false);
-                lock (_stateSync)
-                {
-                    _technicalFailure = healthEvent.Source.ToString();
-                }
             }
-            else if (healthEvent.Kind == MonitoringHealthEventKind.Recovered &&
-                     current.State == FocusSessionState.MonitoringUnavailable)
+            else if (shouldRestore)
             {
                 await MutateAsync(
                         "monitoring.restored",
@@ -801,10 +834,6 @@ public sealed class SessionRuntimeController(
                         false,
                         cancellationToken)
                     .ConfigureAwait(false);
-                lock (_stateSync)
-                {
-                    _technicalFailure = null;
-                }
             }
         }
     }
@@ -826,6 +855,7 @@ public sealed class SessionRuntimeController(
         {
             _technicalFailure = worker.Exception?.GetBaseException().GetType().Name ??
                 "monitoring_failure";
+            _unavailableSources.Add(MonitoringTechnicalSource.Camera);
         }
 
         var status = await GetStatusAsync(cancellationToken).ConfigureAwait(false);
@@ -851,6 +881,7 @@ public sealed class SessionRuntimeController(
             _monitoringCancellation = null;
             _monitoringTask = null;
             _reasoningHealth = null;
+            _unavailableSources.Clear();
         }
 
         if (cancellation is null)
