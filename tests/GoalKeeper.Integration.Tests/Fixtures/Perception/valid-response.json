@@ -1,0 +1,27 @@
+{
+  "id": "resp_valid",
+  "object": "response",
+  "created_at": 1784412000,
+  "status": "completed",
+  "error": null,
+  "incomplete_details": null,
+  "model": "gpt-5.6-luna-2026-07-01",
+  "parallel_tool_calls": false,
+  "tool_choice": "auto",
+  "tools": [],
+  "output": [
+    {
+      "id": "msg_valid",
+      "type": "message",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "annotations": [],
+          "text": "{\"schema_version\":1,\"image_quality\":{\"value\":\"adequate\",\"limitations\":[]},\"people_count\":{\"status\":\"counted\",\"value\":1,\"support\":\"direct\",\"limitations\":[]},\"objects\":[\"laptop\"],\"visible_cues\":[{\"subject\":\"visible_person\",\"kind\":\"posture\",\"state\":\"observed\",\"support\":\"direct\",\"description\":\"person seated upright\",\"visual_basis\":\"upper body is vertical above the chair\",\"limitations\":[]}]}"
+        }
+      ]
+    }
+  ]
+}

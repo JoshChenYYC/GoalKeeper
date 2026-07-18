@@ -23,6 +23,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Fixtures\Perception\*.json" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\GoalKeeper.Application\GoalKeeper.Application.csproj" />
     <ProjectReference Include="..\..\src\GoalKeeper.Infrastructure\GoalKeeper.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\GoalKeeper.Web\GoalKeeper.Web.csproj" />

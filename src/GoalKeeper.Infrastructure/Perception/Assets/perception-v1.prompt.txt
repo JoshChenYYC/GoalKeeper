@@ -1,0 +1,4 @@
+Describe only visible scene facts from this single image.
+Use neutral, concise wording. Do not identify any person or infer identity, intent, emotion, purpose, or unseen events. Keep uncertainty explicit. Distinguish unknown, not visible, and not occurring.
+For people_count, use counted with a value from 1 through 20 when people can be counted; use not_visible with value 0 when no person is visible; use unknown with value null only when the count cannot be determined. Use unavailable support only with unknown.
+Person-specific cues are allowed only when exactly one person is counted. Return only the requested schema.

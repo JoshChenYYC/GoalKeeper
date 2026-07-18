@@ -19,7 +19,7 @@ This directory contains the remaining GoalKeeper roadmap as independently assign
 | [GK-003](./GK-003-runtime-persistence.md) | Runtime state and persistence foundation | Done | — | Recoverable atomic runtime contract |
 | [GK-004](./GK-004-camera-preflight.md) | .NET camera acquisition and preflight input | Done | — | Provider-neutral camera adapter |
 | [GK-005](./GK-005-perception-contract.md) | Perception schema, validator, port, and fake | Done | — | Provider-neutral Observation contract |
-| [GK-006](./GK-006-hosted-perception.md) | Hosted Perception adapter | Blocked | GK-002, GK-005 | Versioned image-provider integration |
+| [GK-006](./GK-006-hosted-perception.md) | Hosted Perception adapter | In progress | GK-002, GK-005 | Versioned image-provider integration |
 | [GK-007](./GK-007-monitoring-pipeline.md) | Capture/Perception pipeline and monitoring health | Done | GK-003, GK-004, GK-005 | Fresh persisted observation stream |
 | [GK-008](./GK-008-durable-reasoning.md) | Durable Reasoning core and deterministic fake | Done | GK-003, GK-005 | Bounded evidence-linked decisions |
 | [GK-009](./GK-009-hosted-reasoning.md) | Hosted Reasoning adapter | Blocked | GK-002, GK-008 | Versioned provider integration |

@@ -1,0 +1,7 @@
+{
+  "error": {
+    "message": "Recorded provider rate limit response.",
+    "type": "rate_limit_error",
+    "code": "rate_limit_exceeded"
+  }
+}
