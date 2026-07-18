@@ -1,0 +1,238 @@
+@page "/goals/{GoalId:guid}/history"
+@inject PostSessionPresentation PostSessionUi
+@inject NavigationManager Navigation
+
+<PageTitle>Goal history · GoalKeeper</PageTitle>
+
+@if (_view is null && _error is null)
+{
+    <div class="loading-state" role="status">Loading Goal history…</div>
+}
+else if (_view is null)
+{
+    <section class="empty-state">
+        <p class="eyebrow">History unavailable</p>
+        <h1>This Goal could not be found.</h1>
+        <p>@_error</p>
+        <a class="button" href="/">Return to goals</a>
+    </section>
+}
+else
+{
+    <header class="history-heading">
+        <div>
+            <p class="eyebrow">Goal history</p>
+            <h1>@_view.CurrentGoalTitle</h1>
+            <p>@_view.Sessions.Count Focus Session@(_view.Sessions.Count == 1 ? "" : "s") retained locally.</p>
+        </div>
+        <div class="storage-total" aria-label="Total local snapshot storage">
+            <strong>@FormatBytes(_view.TotalStorage.SnapshotBytes)</strong>
+            <span>@_view.TotalStorage.SnapshotCount snapshots across GoalKeeper</span>
+        </div>
+    </header>
+
+    @if (_error is not null)
+    {
+        <div class="alert error" role="alert">@_error</div>
+    }
+
+    @if (_view.Sessions.Count == 0)
+    {
+        <section class="empty-history">
+            <h2>No Focus Sessions yet</h2>
+            <p>Completed sessions will appear here with their immutable Session Contract.</p>
+        </section>
+    }
+    else
+    {
+        <section class="history-list" aria-label="Focus Session history">
+            @foreach (var session in _view.Sessions)
+            {
+                <article class="history-card">
+                    <header>
+                        <div>
+                            <span class="status">@StateLabel(session)</span>
+                            <h2>@session.ContractGoalTitle</h2>
+                            <p>@session.StartedAtUtc.ToLocalTime().ToString("MMM d, yyyy · h:mm tt")</p>
+                        </div>
+                        <div class="session-storage">
+                            <strong>@FormatBytes(session.Storage.SnapshotBytes)</strong>
+                            <span>@session.Storage.SnapshotCount snapshot@((session.Storage.SnapshotCount == 1) ? "" : "s")</span>
+                        </div>
+                    </header>
+
+                    @if (session.ContractGoalDescription is not null)
+                    {
+                        <p class="contract-description">@session.ContractGoalDescription</p>
+                    }
+
+                    <details>
+                        <summary>Immutable Session Contract</summary>
+                        <dl>
+                            <dt>Focus target</dt><dd>@FormatDuration(session.TargetFocusDuration)</dd>
+                            <dt>Scheduled Breaks</dt><dd>@BreakSummary(session.ScheduledBreaks)</dd>
+                            <dt>Deviation Profile</dt><dd>@session.DeviationProfileName</dd>
+                            <dt>Deviations</dt><dd>@DeviationSummary(session.Deviations)</dd>
+                            <dt>Reasoning mode</dt><dd>@FormatEnum(session.ReasoningMode.ToString())</dd>
+                            <dt>Sensitivity</dt><dd>@session.Sensitivity</dd>
+                            <dt>Confirmed</dt><dd>@session.ConfirmedAtUtc.ToLocalTime().ToString("MMM d, yyyy · h:mm tt")</dd>
+                        </dl>
+                    </details>
+
+                    <div class="review-status">
+                        <strong>Session Review</strong>
+                        @if (session.Review is null)
+                        {
+                            <span>Not submitted</span>
+                            @if (session.State is FocusSessionState.Fulfilled or FocusSessionState.EndedEarly)
+                            {
+                                <a href="@($"/sessions/{session.Id}/review")">Add optional review</a>
+                            }
+                        }
+                        else
+                        {
+                            <span>@(session.Review.MeaningfulProgress ? "Meaningful progress" : "No meaningful progress") · @FormatEnum(session.Review.Helpfulness.ToString())</span>
+                            @if (session.Review.Note is not null) { <p>@session.Review.Note</p> }
+                        }
+                    </div>
+
+                    <div class="delete-session">
+                        @if (_confirmSessionId == session.Id)
+                        {
+                            <span>Delete this Focus Session and all of its local data?</span>
+                            <button type="button" class="danger" disabled="@_deleting" @onclick="@(() => DeleteSessionAsync(session.Id))">Yes, delete session</button>
+                            <button type="button" class="secondary" @onclick="@(() => _confirmSessionId = null)">Cancel</button>
+                        }
+                        else
+                        {
+                            <button type="button" class="text-button danger-text" @onclick="@(() => _confirmSessionId = session.Id)">Delete Focus Session</button>
+                        }
+                    </div>
+                </article>
+            }
+        </section>
+    }
+
+    <section class="goal-delete-zone">
+        <h2>Delete Goal</h2>
+        <p>Deletion removes this Goal, every associated Focus Session, and all marker-owned artifacts.</p>
+        <label class="confirm"><InputCheckbox @bind-Value="_confirmGoalDelete" /> Confirm deletion of this Goal and all session history</label>
+        <button type="button" class="danger" disabled="@(!_confirmGoalDelete || _deleting)" @onclick="DeleteGoalAsync">Delete Goal</button>
+    </section>
+}
+
+@code {
+    [Parameter] public Guid GoalId { get; set; }
+
+    private GoalHistoryPageView? _view;
+    private Guid? _confirmSessionId;
+    private bool _confirmGoalDelete;
+    private bool _deleting;
+    private string? _error;
+
+    protected override async Task OnParametersSetAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _error = null;
+        try
+        {
+            _view = await PostSessionUi.GetHistoryAsync(GoalId);
+            if (_view is null)
+            {
+                _error = "Goal not found.";
+            }
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+    }
+
+    private async Task DeleteSessionAsync(Guid sessionId)
+    {
+        if (_deleting || _confirmSessionId != sessionId)
+        {
+            return;
+        }
+
+        _deleting = true;
+        _error = null;
+        try
+        {
+            await PostSessionUi.DeleteSessionAsync(sessionId);
+            _confirmSessionId = null;
+            await LoadAsync();
+        }
+        catch (Exception exception)
+        {
+            _error = $"Nothing was deleted. {exception.Message}";
+        }
+        finally
+        {
+            _deleting = false;
+        }
+    }
+
+    private async Task DeleteGoalAsync()
+    {
+        if (_view is null || !_confirmGoalDelete || _deleting)
+        {
+            return;
+        }
+
+        _deleting = true;
+        _error = null;
+        try
+        {
+            await PostSessionUi.DeleteGoalAsync(GoalId, _view.GoalVersion);
+            Navigation.NavigateTo("/");
+        }
+        catch (Exception exception)
+        {
+            _error = $"Nothing was deleted. {exception.Message}";
+        }
+        finally
+        {
+            _deleting = false;
+        }
+    }
+
+    private static string StateLabel(SessionHistoryPageItem session) => session.State switch
+    {
+        FocusSessionState.Fulfilled => "Fulfilled",
+        FocusSessionState.EndedEarly when session.EndedEarlyReason is { } reason => $"Ended Early · {FormatEnum(reason.ToString())}",
+        _ => FormatEnum(session.State.ToString())
+    };
+
+    private static string BreakSummary(IReadOnlyList<ScheduledBreakInput> breaks) =>
+        breaks.Count == 0
+            ? "None"
+            : string.Join(", ", breaks.Select(value =>
+                $"{FormatDuration(value.Duration)} after {FormatDuration(value.ActiveFocusOffset)}"));
+
+    private static string DeviationSummary(IReadOnlyList<DeviationView> deviations) =>
+        deviations.Count == 0 ? "None" : string.Join("; ", deviations.Select(value => value.Description));
+
+    private static string FormatDuration(TimeSpan value) =>
+        value.TotalHours >= 1
+            ? $"{(int)value.TotalHours}h {value.Minutes}m"
+            : $"{Math.Max(1, (int)value.TotalMinutes)}m";
+
+    private static string FormatBytes(long bytes)
+    {
+        string[] units = ["B", "KB", "MB", "GB"];
+        var value = (double)Math.Max(0, bytes);
+        var unit = 0;
+        while (value >= 1024 && unit < units.Length - 1)
+        {
+            value /= 1024;
+            unit++;
+        }
+
+        return unit == 0 ? $"{value:0} {units[unit]}" : $"{value:0.#} {units[unit]}";
+    }
+
+    private static string FormatEnum(string value) =>
+        System.Text.RegularExpressions.Regex.Replace(value, "(?<!^)([A-Z])", " $1");
+}

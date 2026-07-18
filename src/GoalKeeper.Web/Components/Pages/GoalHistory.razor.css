@@ -1,0 +1,133 @@
+.history-heading {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 2rem;
+    margin-bottom: 2rem;
+}
+
+.history-heading p {
+    margin-bottom: 0;
+    color: var(--muted);
+}
+
+.storage-total,
+.session-storage {
+    display: grid;
+    text-align: right;
+}
+
+.storage-total strong {
+    color: var(--forest-dark);
+    font-size: 1.8rem;
+}
+
+.storage-total span,
+.session-storage span {
+    color: var(--muted);
+    font-size: .78rem;
+}
+
+.history-list {
+    display: grid;
+    gap: 1rem;
+}
+
+.history-card,
+.empty-history,
+.goal-delete-zone {
+    padding: clamp(1.2rem, 3vw, 1.75rem);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--paper);
+}
+
+.history-card > header {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.history-card h2 {
+    margin: .65rem 0 .2rem;
+}
+
+.history-card header p,
+.contract-description {
+    margin: 0;
+    color: var(--muted);
+}
+
+details {
+    margin-top: 1.25rem;
+    padding: 1rem 0;
+    border-block: 1px solid var(--line);
+}
+
+summary {
+    color: var(--forest-dark);
+    font-weight: 760;
+    cursor: pointer;
+}
+
+.review-status {
+    display: grid;
+    gap: .3rem;
+    margin-top: 1rem;
+}
+
+.review-status > span,
+.review-status > p {
+    margin: 0;
+    color: var(--muted);
+}
+
+.review-status a {
+    width: fit-content;
+    color: var(--forest);
+    font-weight: 720;
+}
+
+.delete-session {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .65rem;
+    margin-top: 1rem;
+}
+
+.delete-session > span {
+    flex: 1 1 18rem;
+    color: var(--danger);
+    font-weight: 700;
+}
+
+.goal-delete-zone {
+    display: grid;
+    gap: 1rem;
+    margin-top: 2.5rem;
+    border-color: #dfbbb6;
+    background: var(--danger-soft);
+}
+
+.goal-delete-zone h2,
+.goal-delete-zone p {
+    margin: 0;
+}
+
+.goal-delete-zone button {
+    width: fit-content;
+}
+
+@media (max-width: 650px) {
+    .history-heading,
+    .history-card > header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .storage-total,
+    .session-storage {
+        text-align: left;
+    }
+}

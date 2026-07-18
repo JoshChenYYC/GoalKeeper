@@ -141,4 +141,41 @@ public sealed class WebHostTests
             }
         }
     }
+
+    [Fact]
+    public async Task Review_and_history_routes_render_safe_missing_record_states()
+    {
+        var dataRoot = Path.Combine(
+            Path.GetTempPath(),
+            $"goalkeeper-post-session-ui-host-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dataRoot);
+        try
+        {
+            using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+            {
+                builder.UseSetting("GoalKeeper:DataRoot", dataRoot);
+                builder.ConfigureLogging(logging => logging.ClearProviders());
+            });
+            using var client = factory.CreateClient();
+
+            var reviewResponse = await client.GetAsync($"/sessions/{Guid.NewGuid()}/review");
+            var reviewHtml = await reviewResponse.Content.ReadAsStringAsync();
+            var historyResponse = await client.GetAsync($"/goals/{Guid.NewGuid()}/history");
+            var historyHtml = await historyResponse.Content.ReadAsStringAsync();
+
+            Assert.True(reviewResponse.IsSuccessStatusCode, reviewHtml);
+            Assert.Contains("This Focus Session could not be reviewed.", reviewHtml);
+            Assert.Contains("Return to goals", reviewHtml);
+            Assert.True(historyResponse.IsSuccessStatusCode, historyHtml);
+            Assert.Contains("This Goal could not be found.", historyHtml);
+            Assert.Contains("Return to goals", historyHtml);
+        }
+        finally
+        {
+            if (Directory.Exists(dataRoot))
+            {
+                Directory.Delete(dataRoot, recursive: true);
+            }
+        }
+    }
 }

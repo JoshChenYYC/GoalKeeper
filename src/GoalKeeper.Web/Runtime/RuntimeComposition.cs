@@ -92,6 +92,7 @@ public static class RuntimeServiceCollectionExtensions
             return controller;
         });
         services.AddSingleton<ISessionRuntimePresentation, SessionRuntimePresentation>();
+        services.AddScoped<PostSessionPresentation>();
 
         services.AddSingleton<SessionRuntimeWorkerRegistry>();
         services.AddSingleton<ISessionRuntimeWorkerRegistry>(
