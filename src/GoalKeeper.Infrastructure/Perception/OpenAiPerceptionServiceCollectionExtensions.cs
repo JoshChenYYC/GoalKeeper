@@ -6,6 +6,8 @@ namespace GoalKeeper.Infrastructure.Perception;
 
 public static class OpenAiPerceptionServiceCollectionExtensions
 {
+    public const string HttpClientName = "GoalKeeper.OpenAI.Perception";
+
     public static IServiceCollection AddOpenAiPerception(
         this IServiceCollection services,
         IConfiguration configuration)
@@ -45,11 +47,12 @@ public static class OpenAiPerceptionServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(configure);
 
         services.AddOptions<OpenAiPerceptionOptions>().Configure(configure);
-        services.AddHttpClient<OpenAiPerceptionAdapter>(static client =>
+        services.AddHttpClient(HttpClientName, static client =>
         {
             client.Timeout = Timeout.InfiniteTimeSpan;
         });
-        services.AddTransient<IPerceptionPort>(static provider =>
+        services.AddSingleton<OpenAiPerceptionAdapter>();
+        services.AddSingleton<IPerceptionPort>(static provider =>
             provider.GetRequiredService<OpenAiPerceptionAdapter>());
 
         return services;

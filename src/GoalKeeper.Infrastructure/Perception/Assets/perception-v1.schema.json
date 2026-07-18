@@ -16,7 +16,7 @@
         },
         "limitations": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": { "type": "string", "pattern": "^.{1,160}$" },
           "maxItems": 8
         }
       },
@@ -43,7 +43,7 @@
             },
             "limitations": {
               "type": "array",
-              "items": { "type": "string" },
+              "items": { "type": "string", "pattern": "^.{1,160}$" },
               "maxItems": 8
             }
           },
@@ -67,7 +67,7 @@
             },
             "limitations": {
               "type": "array",
-              "items": { "type": "string" },
+              "items": { "type": "string", "pattern": "^.{1,160}$" },
               "maxItems": 8
             }
           },
@@ -90,7 +90,7 @@
             },
             "limitations": {
               "type": "array",
-              "items": { "type": "string" },
+              "items": { "type": "string", "pattern": "^.{1,160}$" },
               "maxItems": 8
             }
           },
@@ -100,7 +100,7 @@
     },
     "objects": {
       "type": "array",
-      "items": { "type": "string" },
+      "items": { "type": "string", "pattern": "^.{1,80}$" },
       "maxItems": 32
     },
     "visible_cues": {
@@ -136,11 +136,11 @@
             "type": "string",
             "enum": ["direct", "partial", "inferred", "unavailable"]
           },
-          "description": { "type": "string" },
-          "visual_basis": { "type": ["string", "null"] },
+          "description": { "type": "string", "pattern": "^.{1,240}$" },
+          "visual_basis": { "type": ["string", "null"], "pattern": "^.{1,320}$" },
           "limitations": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": { "type": "string", "pattern": "^.{1,160}$" },
             "maxItems": 8
           }
         },

@@ -37,7 +37,7 @@ The repository quality gate also passed on 2026-07-18:
 
 ```text
 Python: 49 cases passed
-.NET: 339 cases passed
+.NET: 356 cases passed
 Release build: 0 warnings, 0 errors
 dotnet format --verify-no-changes: passed
 NuGet restore and vulnerability audit: passed
@@ -96,6 +96,23 @@ observations during the exploratory run. They also exposed quality limitations:
 a partially visible right-edge form was counted as a second person in one image,
 and a phone was described only as a generic handheld device in another. No
 credential, image body, base64 content, or raw provider response was retained.
+
+At `2026-07-18T22:56:54Z`, all three consented inputs were rerun after response
+lifecycle validation, metadata sanitization, output-token bounding, and
+`IHttpClientFactory` lifetime hardening. Each completed on its first request
+with HTTP 200, `status: completed`, exactly one `output_text`, and a locally
+valid Observation:
+
+```text
+not_in_frame: 6180 ms, request ID req_eba3e8478be24614a3d1a40a2e622751
+working:      4585 ms, request ID req_dbb3d3dbcc2a41ff9988a562ce10f5af
+on_phone:     5485 ms, request ID req_56107d47bd5e4ccfaef4b97dc0220429
+```
+
+The input named `not_in_frame.jpg` contains a person partially visible at the
+lower-left edge, so its valid result counted one person with partial support.
+The filename should not be treated as ground-truth evidence that nobody is
+visible.
 
 ## Known limitations
 

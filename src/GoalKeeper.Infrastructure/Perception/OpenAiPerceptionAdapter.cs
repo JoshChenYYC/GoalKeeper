@@ -12,22 +12,48 @@ namespace GoalKeeper.Infrastructure.Perception;
 public sealed class OpenAiPerceptionAdapter : IPerceptionPort
 {
     private const int MaximumProviderResponseBytes = 1024 * 1024;
+    private const int MaximumOutputTokens = 16_384;
     private const string ProviderName = "openai";
+    private static readonly HashSet<string> KnownRepairPaths =
+    [
+        "$",
+        "$.schema_version",
+        "$.image_quality",
+        "$.image_quality.value",
+        "$.image_quality.limitations",
+        "$.people_count",
+        "$.people_count.status",
+        "$.people_count.value",
+        "$.people_count.support",
+        "$.people_count.limitations",
+        "$.objects",
+        "$.visible_cues"
+    ];
+    private static readonly HashSet<string> KnownCueRepairSuffixes =
+    [
+        ".subject",
+        ".kind",
+        ".state",
+        ".support",
+        ".description",
+        ".visual_basis",
+        ".limitations"
+    ];
 
-    private readonly HttpClient _httpClient;
+    private readonly IHttpClientFactory _httpClientFactory;
     private readonly OpenAiPerceptionOptions _options;
     private readonly Uri _responsesEndpoint;
 
     public OpenAiPerceptionAdapter(
-        HttpClient httpClient,
+        IHttpClientFactory httpClientFactory,
         IOptions<OpenAiPerceptionOptions> options)
     {
-        ArgumentNullException.ThrowIfNull(httpClient);
+        ArgumentNullException.ThrowIfNull(httpClientFactory);
         ArgumentNullException.ThrowIfNull(options);
 
         _options = options.Value;
         _options.Validate();
-        _httpClient = httpClient;
+        _httpClientFactory = httpClientFactory;
         _responsesEndpoint = new Uri(
             $"{_options.BaseUrl.AbsoluteUri.TrimEnd('/')}/responses",
             UriKind.Absolute);
@@ -44,10 +70,13 @@ public sealed class OpenAiPerceptionAdapter : IPerceptionPort
         var requestId = LocalRequestId();
         var model = _options.Model;
         ObservationValidationFailure? repairFailure = null;
+        using var httpClient = _httpClientFactory.CreateClient(
+            OpenAiPerceptionServiceCollectionExtensions.HttpClientName);
 
         for (var attempt = 0; attempt < 2; attempt++)
         {
             var call = await SendAsync(
+                httpClient,
                 request,
                 repairFailure,
                 cancellationToken);
@@ -81,6 +110,7 @@ public sealed class OpenAiPerceptionAdapter : IPerceptionPort
     }
 
     private async Task<ProviderCall> SendAsync(
+        HttpClient httpClient,
         PerceptionRequest request,
         ObservationValidationFailure? repairFailure,
         CancellationToken cancellationToken)
@@ -92,14 +122,14 @@ public sealed class OpenAiPerceptionAdapter : IPerceptionPort
         try
         {
             using var message = CreateRequest(request, repairFailure);
-            using var response = await _httpClient.SendAsync(
+            using var response = await httpClient.SendAsync(
                 message,
                 HttpCompletionOption.ResponseHeadersRead,
                 timeout.Token);
-            var requestId = SafeProviderValue(
+            var requestId = SafeProviderRequestId(
                 GetRequestId(response),
-                160,
-                LocalRequestId());
+                LocalRequestId(),
+                _options.ApiKey);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -111,18 +141,24 @@ public sealed class OpenAiPerceptionAdapter : IPerceptionPort
             var responseBody = await ReadBoundedAsync(
                 response.Content,
                 timeout.Token);
-            if (responseBody is null ||
-                !TryExtractOutput(responseBody, out var output, out var returnedModel))
+            if (responseBody is null)
             {
-                return new CompletedProviderCall(
-                    ReadOnlyMemory<byte>.Empty,
-                    _options.Model,
+                return new FailedProviderCall(
+                    PerceptionFailureCategory.InvalidResponse,
+                    requestId);
+            }
+
+            var extraction = ExtractOutput(responseBody);
+            if (extraction.Status != OutputExtractionStatus.Success)
+            {
+                return new FailedProviderCall(
+                    PerceptionFailureCategory.InvalidResponse,
                     requestId);
             }
 
             return new CompletedProviderCall(
-                output,
-                SafeProviderValue(returnedModel, 120, _options.Model),
+                extraction.Output,
+                SafeProviderModel(extraction.Model, _options.Model),
                 requestId);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -158,6 +194,7 @@ public sealed class OpenAiPerceptionAdapter : IPerceptionPort
         {
             ["model"] = _options.Model,
             ["store"] = false,
+            ["max_output_tokens"] = MaximumOutputTokens,
             ["instructions"] = PerceptionPromptAssets.Prompt,
             ["input"] = new JsonArray
             {
@@ -213,9 +250,83 @@ public sealed class OpenAiPerceptionAdapter : IPerceptionPort
     {
         var issues = failure.Issues
             .Take(8)
-            .Select(issue => $"{issue.Path} ({issue.Code})");
+            .Select(issue => $"{SafeRepairPath(issue.Path)} ({issue.Code})");
         return "Re-examine the image and return one corrected schema instance. " +
                $"Correct these local validation issues: {string.Join(", ", issues)}.";
+    }
+
+    private static string SafeRepairPath(string path)
+    {
+        if (KnownRepairPaths.Contains(path))
+        {
+            return path;
+        }
+
+        foreach (var collectionPath in new[]
+                 {
+                     "$.image_quality.limitations",
+                     "$.people_count.limitations",
+                     "$.objects"
+                 })
+        {
+            if (IsIndexedPath(path, collectionPath, out var suffix) &&
+                suffix.Length == 0)
+            {
+                return $"{collectionPath}[]";
+            }
+        }
+
+        if (IsIndexedPath(path, "$.visible_cues", out var cueSuffix))
+        {
+            if (cueSuffix.Length == 0)
+            {
+                return "$.visible_cues[]";
+            }
+
+            if (KnownCueRepairSuffixes.Contains(cueSuffix))
+            {
+                return $"$.visible_cues[]{cueSuffix}";
+            }
+
+            const string limitationsSuffix = ".limitations";
+            if (cueSuffix.StartsWith(
+                    $"{limitationsSuffix}[",
+                    StringComparison.Ordinal) &&
+                IsIndexedPath(
+                    cueSuffix,
+                    limitationsSuffix,
+                    out var limitationItemSuffix) &&
+                limitationItemSuffix.Length == 0)
+            {
+                return "$.visible_cues[].limitations[]";
+            }
+        }
+
+        return "$";
+    }
+
+    private static bool IsIndexedPath(
+        string path,
+        string collectionPath,
+        out string suffix)
+    {
+        suffix = string.Empty;
+        var prefix = $"{collectionPath}[";
+        if (!path.StartsWith(prefix, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var closingBracket = path.IndexOf(']', prefix.Length);
+        if (closingBracket < 0 ||
+            closingBracket == prefix.Length ||
+            !path[prefix.Length..closingBracket].All(IsAsciiDigit))
+        {
+            return false;
+        }
+
+        suffix = path[(closingBracket + 1)..];
+        return true;
     }
 
     private static async Task<byte[]?> ReadBoundedAsync(
@@ -247,37 +358,53 @@ public sealed class OpenAiPerceptionAdapter : IPerceptionPort
         }
     }
 
-    private static bool TryExtractOutput(
-        ReadOnlyMemory<byte> responseBody,
-        out ReadOnlyMemory<byte> output,
-        out string? model)
+    private static OutputExtraction ExtractOutput(
+        ReadOnlyMemory<byte> responseBody)
     {
-        output = ReadOnlyMemory<byte>.Empty;
-        model = null;
-
         try
         {
             using var document = JsonDocument.Parse(responseBody);
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object)
             {
-                return false;
+                return OutputExtraction.Missing;
             }
 
+            string? model = null;
             if (root.TryGetProperty("model", out var modelElement) &&
                 modelElement.ValueKind == JsonValueKind.String)
             {
                 model = modelElement.GetString();
             }
 
+            if (!HasStringValue(root, "object", "response") ||
+                !HasStringValue(root, "status", "completed") ||
+                HasNonNullProperty(root, "error") ||
+                HasNonNullProperty(root, "incomplete_details"))
+            {
+                return OutputExtraction.TerminalInvalid(model);
+            }
+
             if (!root.TryGetProperty("output", out var items) ||
                 items.ValueKind != JsonValueKind.Array)
             {
-                return false;
+                return OutputExtraction.MissingWithModel(model);
             }
 
+            string? outputText = null;
             foreach (var item in items.EnumerateArray())
             {
+                if (!HasStringValue(item, "type", "message"))
+                {
+                    continue;
+                }
+
+                if (!HasStringValue(item, "role", "assistant") ||
+                    !HasStringValue(item, "status", "completed"))
+                {
+                    return OutputExtraction.TerminalInvalid(model);
+                }
+
                 if (!item.TryGetProperty("content", out var content) ||
                     content.ValueKind != JsonValueKind.Array)
                 {
@@ -286,28 +413,51 @@ public sealed class OpenAiPerceptionAdapter : IPerceptionPort
 
                 foreach (var part in content.EnumerateArray())
                 {
-                    if (part.TryGetProperty("type", out var type) &&
-                        type.ValueKind == JsonValueKind.String &&
-                        string.Equals(
-                            type.GetString(),
-                            "output_text",
-                            StringComparison.Ordinal) &&
+                    if (HasStringValue(part, "type", "refusal"))
+                    {
+                        return OutputExtraction.TerminalInvalid(model);
+                    }
+
+                    if (HasStringValue(part, "type", "output_text") &&
                         part.TryGetProperty("text", out var text) &&
                         text.ValueKind == JsonValueKind.String)
                     {
-                        output = Encoding.UTF8.GetBytes(text.GetString()!);
-                        return true;
+                        if (outputText is not null)
+                        {
+                            return OutputExtraction.TerminalInvalid(model);
+                        }
+
+                        outputText = text.GetString();
                     }
                 }
             }
+
+            return outputText is null
+                ? OutputExtraction.MissingWithModel(model)
+                : OutputExtraction.Success(
+                    Encoding.UTF8.GetBytes(outputText),
+                    model);
         }
         catch (JsonException)
         {
-            return false;
+            return OutputExtraction.Missing;
         }
-
-        return false;
     }
+
+    private static bool HasStringValue(
+        JsonElement element,
+        string propertyName,
+        string expected) =>
+        element.ValueKind == JsonValueKind.Object &&
+        element.TryGetProperty(propertyName, out var property) &&
+        property.ValueKind == JsonValueKind.String &&
+        string.Equals(property.GetString(), expected, StringComparison.Ordinal);
+
+    private static bool HasNonNullProperty(
+        JsonElement element,
+        string propertyName) =>
+        element.TryGetProperty(propertyName, out var property) &&
+        property.ValueKind is not JsonValueKind.Null and not JsonValueKind.Undefined;
 
     private static PerceptionFailureCategory Categorize(HttpStatusCode statusCode) =>
         statusCode switch
@@ -347,21 +497,67 @@ public sealed class OpenAiPerceptionAdapter : IPerceptionPort
             ? values.FirstOrDefault()
             : null;
 
-    private static string SafeProviderValue(
+    private static string SafeProviderRequestId(
         string? value,
-        int maximumLength,
-        string fallback)
+        string fallback,
+        string apiKey) =>
+        value is { Length: 36 } &&
+        value.StartsWith("req_", StringComparison.Ordinal) &&
+        value[4..].All(IsAsciiHexDigit) &&
+        !value.Contains(apiKey, StringComparison.Ordinal)
+            ? value
+            : fallback;
+
+    private static string SafeProviderModel(
+        string? value,
+        string configuredModel) =>
+        IsSafeProviderIdentifier(value, 120) &&
+        (string.Equals(value, configuredModel, StringComparison.Ordinal) ||
+         IsDatedModelSnapshot(value!, configuredModel))
+            ? value!
+            : configuredModel;
+
+    private static bool IsDatedModelSnapshot(
+        string value,
+        string configuredModel)
     {
-        if (string.IsNullOrWhiteSpace(value))
+        var prefix = $"{configuredModel}-";
+        if (!value.StartsWith(prefix, StringComparison.Ordinal))
         {
-            return fallback;
+            return false;
         }
 
-        var safe = new string(value
-            .Where(character => !char.IsControl(character))
-            .Take(maximumLength)
-            .ToArray());
-        return string.IsNullOrWhiteSpace(safe) ? fallback : safe;
+        var suffix = value[prefix.Length..];
+        return suffix.Length == 10 &&
+               suffix[4] == '-' &&
+               suffix[7] == '-' &&
+               suffix[..4].All(IsAsciiDigit) &&
+               suffix.Substring(5, 2).All(IsAsciiDigit) &&
+               suffix[8..].All(IsAsciiDigit);
+    }
+
+    private static bool IsAsciiDigit(char value) =>
+        value is >= '0' and <= '9';
+
+    private static bool IsAsciiHexDigit(char value) =>
+        IsAsciiDigit(value) ||
+        value is >= 'a' and <= 'f' or >= 'A' and <= 'F';
+
+    private static bool IsSafeProviderIdentifier(
+        string? value,
+        int maximumLength)
+    {
+        if (string.IsNullOrWhiteSpace(value) ||
+            value.Length > maximumLength)
+        {
+            return false;
+        }
+
+        return value.All(character =>
+            character is >= 'a' and <= 'z' or
+                >= 'A' and <= 'Z' or
+                >= '0' and <= '9' or
+                '-' or '_' or '.');
     }
 
     private static string LocalRequestId() => $"local-{Guid.NewGuid():N}";
@@ -376,4 +572,31 @@ public sealed class OpenAiPerceptionAdapter : IPerceptionPort
     private sealed record FailedProviderCall(
         PerceptionFailureCategory Category,
         string RequestId) : ProviderCall(RequestId);
+
+    private enum OutputExtractionStatus
+    {
+        Success,
+        Missing,
+        TerminalInvalid
+    }
+
+    private sealed record OutputExtraction(
+        OutputExtractionStatus Status,
+        ReadOnlyMemory<byte> Output,
+        string? Model)
+    {
+        public static OutputExtraction Missing { get; } =
+            new(OutputExtractionStatus.Missing, ReadOnlyMemory<byte>.Empty, null);
+
+        public static OutputExtraction MissingWithModel(string? model) =>
+            new(OutputExtractionStatus.Missing, ReadOnlyMemory<byte>.Empty, model);
+
+        public static OutputExtraction TerminalInvalid(string? model) =>
+            new(OutputExtractionStatus.TerminalInvalid, ReadOnlyMemory<byte>.Empty, model);
+
+        public static OutputExtraction Success(
+            ReadOnlyMemory<byte> output,
+            string? model) =>
+            new(OutputExtractionStatus.Success, output, model);
+    }
 }
