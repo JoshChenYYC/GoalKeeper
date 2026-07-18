@@ -1,8 +1,10 @@
 # GK-010 — Scripted Recovery boundary
 
-**Status:** Ready
+**Status:** In progress
 **Depends on:** GK-003
 **Suggested branch:** `task/GK-010-scripted-recovery`
+**Branch:** `task/GK-010-scripted-recovery`
+**Owner:** Codex (`/root/gk010_recovery`)
 
 ## Outcome
 
