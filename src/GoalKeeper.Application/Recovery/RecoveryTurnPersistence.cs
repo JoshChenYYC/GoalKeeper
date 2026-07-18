@@ -34,6 +34,41 @@ public static class RecoveryTurnPersistence
             turn.Timing.CompletedAtUtc);
     }
 
+    public static RecoveryTurn FromView(RecoveryTurnView view)
+    {
+        ArgumentNullException.ThrowIfNull(view);
+
+        RecoveryOutcomeDocument document;
+        try
+        {
+            document = JsonSerializer.Deserialize<RecoveryOutcomeDocument>(
+                view.Outcome,
+                SerializerOptions) ?? throw new JsonException(
+                "The Recovery outcome document is missing.");
+        }
+        catch (JsonException exception)
+        {
+            throw new ArgumentException(
+                "The persisted Recovery outcome document is invalid.",
+                nameof(view),
+                exception);
+        }
+
+        return new(
+            view.Id,
+            view.SessionId,
+            document.SessionVersion,
+            view.InterventionId,
+            view.TurnNumber,
+            document.StructuredOutcome,
+            view.Transcript,
+            document.Clarification,
+            document.AssistantMessage,
+            document.RemainderOverrideConfirmed,
+            document.Timing,
+            document.Metadata);
+    }
+
     private sealed record RecoveryOutcomeDocument(
         long SessionVersion,
         RecoveryOutcome StructuredOutcome,

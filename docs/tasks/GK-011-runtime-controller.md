@@ -1,6 +1,8 @@
 # GK-011 — End-to-end session runtime controller
 
-**Status:** Ready
+**Status:** In progress
+**Owner:** Codex `/root`
+**Branch:** `task/GK-011-runtime-controller`
 **Depends on:** GK-007, GK-008, GK-010
 **Suggested branch:** `task/GK-011-runtime-controller`
 

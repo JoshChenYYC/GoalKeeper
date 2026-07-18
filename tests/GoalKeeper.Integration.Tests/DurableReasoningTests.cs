@@ -72,6 +72,82 @@ public sealed class DurableReasoningTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Controller_admission_commits_evaluation_episode_intervention_and_runtime_atomically()
+    {
+        var prepared = await StartSessionAsync(ReasoningMode.ProfileOnly);
+        var observation = await AddObservationAsync(prepared.Session.Id, prepared.Session.Version, 1);
+        var service = Service(new DeterministicReasoningFake(
+            [ReasoningFakeStep.ListedIntervention(prepared.Setup.Contract.Deviations[0].Id)]));
+
+        var result = await service.EvaluateAndAdmitAsync(
+            Input(prepared, observation),
+            (context, _) =>
+            {
+                prepared.Session.AdmitIntervention(context.Evaluation);
+                return Task.FromResult(
+                    new ReasoningAdmissionPlan(prepared.Session.CreateSnapshot()));
+            });
+
+        Assert.True(result.Accepted);
+        var stored = await _repository.GetSessionAsync(prepared.Session.Id);
+        Assert.Equal(FocusSessionState.RecoveryCheckIn, stored!.State);
+        Assert.Equal(2, stored.Version);
+        Assert.NotNull(stored.Runtime.ActiveIntervention);
+        Assert.NotNull(stored.Runtime.Timer.PendingDispute);
+        Assert.Equal(result.EvaluationId, stored.Runtime.ActiveIntervention!.Evaluation.Id);
+
+        await using var db = await _factory.CreateDbContextAsync();
+        var evaluation = await db.ReasoningEvaluations.SingleAsync();
+        var episode = await db.EvidenceEpisodes.SingleAsync();
+        var intervention = await db.Interventions.SingleAsync();
+        Assert.True(evaluation.Accepted);
+        Assert.Equal(evaluation.Id, intervention.EvaluationId);
+        Assert.Equal(episode.Id, intervention.EvidenceEpisodeId);
+        Assert.Equal(stored.Runtime.ActiveIntervention.Id, intervention.Id);
+    }
+
+    [Fact]
+    public async Task Admission_commit_conflict_records_rejection_without_partial_admission()
+    {
+        var prepared = await StartSessionAsync(ReasoningMode.ProfileOnly);
+        var observation = await AddObservationAsync(prepared.Session.Id, prepared.Session.Version, 1);
+        var service = Service(new DeterministicReasoningFake(
+            [ReasoningFakeStep.ListedIntervention(prepared.Setup.Contract.Deviations[0].Id)]));
+
+        var result = await service.EvaluateAndAdmitAsync(
+            Input(prepared, observation),
+            async (context, cancellationToken) =>
+            {
+                prepared.Session.AdmitIntervention(context.Evaluation);
+                var current = (await _repository.GetSessionAsync(
+                    prepared.Session.Id,
+                    cancellationToken))!.Runtime;
+                await _repository.UpdateSessionAsync(
+                    prepared.Session.Id,
+                    new(
+                        current.Version,
+                        current with { Version = current.Version + 1 },
+                        []),
+                    cancellationToken);
+                return new ReasoningAdmissionPlan(prepared.Session.CreateSnapshot());
+            });
+
+        Assert.False(result.Accepted);
+        Assert.Equal("stale_session_version", result.RejectionReason);
+        var stored = await _repository.GetSessionAsync(prepared.Session.Id);
+        Assert.Equal(FocusSessionState.Focusing, stored!.State);
+        Assert.Equal(2, stored.Version);
+        Assert.Null(stored.Runtime.ActiveIntervention);
+        Assert.Null(stored.Runtime.Timer.PendingDispute);
+
+        await using var db = await _factory.CreateDbContextAsync();
+        var evaluation = await db.ReasoningEvaluations.SingleAsync();
+        Assert.False(evaluation.Accepted);
+        Assert.Empty(await db.EvidenceEpisodes.ToListAsync());
+        Assert.Empty(await db.Interventions.ToListAsync());
+    }
+
+    [Fact]
     public async Task Exploratory_mode_accepts_grounded_unlisted_evidence()
     {
         var prepared = await StartSessionAsync(ReasoningMode.Exploratory);
@@ -102,13 +178,22 @@ public sealed class DurableReasoningTests : IAsyncLifetime
             ReasoningFakeStep.InvalidReferences(Guid.NewGuid()),
             ReasoningFakeStep.Throw(new InvalidOperationException("scripted failure"))
         ];
+        var orchestrationResults = new List<ReasoningOrchestrationResult>();
 
         foreach (var step in steps)
         {
             var result = await Service(new DeterministicReasoningFake([step]))
                 .EvaluateAsync(Input(prepared, observation));
             Assert.False(result.Accepted);
+            orchestrationResults.Add(result);
         }
+
+        Assert.Null(orchestrationResults[0].FailureCategory);
+        Assert.Null(orchestrationResults[1].FailureCategory);
+        Assert.Null(orchestrationResults[2].FailureCategory);
+        Assert.Equal(
+            ReasoningFailureCategory.Unknown,
+            orchestrationResults[3].FailureCategory);
 
         var evaluations = await _repository.GetRecentReasoningEvaluationsAsync(
             prepared.Session.Id,

@@ -78,7 +78,8 @@ public interface IMonitoringObservationSink
 public enum MonitoringTechnicalSource
 {
     Camera,
-    Perception
+    Perception,
+    Reasoning
 }
 
 public enum MonitoringHealthEventKind

@@ -165,5 +165,15 @@ public sealed class RecoveryContractTests
             root.GetProperty("clarification").GetString());
         Assert.True(root.GetProperty("remainder_override_confirmed").GetBoolean());
         Assert.Equal(turn.Timing.CompletedAtUtc, write.OccurredAtUtc);
+
+        var restored = RecoveryTurnPersistence.FromView(new(
+            write.Id,
+            write.SessionId,
+            write.InterventionId,
+            write.TurnNumber,
+            write.Outcome,
+            write.Transcript,
+            write.OccurredAtUtc));
+        Assert.Equal(turn, restored);
     }
 }

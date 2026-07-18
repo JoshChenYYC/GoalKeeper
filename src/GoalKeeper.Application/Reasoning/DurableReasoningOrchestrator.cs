@@ -42,6 +42,24 @@ public sealed class DurableReasoningOrchestrator
         ReasoningEvaluationInput input,
         CancellationToken cancellationToken = default)
     {
+        return await EvaluateCoreAsync(input, null, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<ReasoningOrchestrationResult> EvaluateAndAdmitAsync(
+        ReasoningEvaluationInput input,
+        ReasoningAdmissionHandler admissionHandler,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(admissionHandler);
+        return await EvaluateCoreAsync(input, admissionHandler, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<ReasoningOrchestrationResult> EvaluateCoreAsync(
+        ReasoningEvaluationInput input,
+        ReasoningAdmissionHandler? admissionHandler,
+        CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(input);
         ValidateInput(input);
 
@@ -127,13 +145,51 @@ public sealed class DurableReasoningOrchestrator
                 cancellationToken).ConfigureAwait(false);
         }
 
-        return await CommitAcceptedAsync(
-            input,
-            request,
-            success,
-            validation.EpisodePlan,
-            validation.EpisodeMemory,
-            cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return await CommitAcceptedAsync(
+                input,
+                request,
+                success,
+                validation.EpisodePlan,
+                validation.EpisodeMemory,
+                admissionHandler,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (ReasoningAdmissionException exception)
+        {
+            return await RecordRejectedAsync(
+                input,
+                success.Proposal.Decision,
+                exception.Reason,
+                request,
+                success,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (PersistenceConflictException)
+        {
+            return await RecordRejectedAsync(
+                input,
+                success.Proposal.Decision,
+                "superseded_session",
+                request,
+                success,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (DomainRuleViolationException)
+        {
+            return await RecordRejectedAsync(
+                input,
+                success.Proposal.Decision,
+                "admission_rejected",
+                request,
+                success,
+                cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private async Task<ReasoningRequest> BuildRequestAsync(
@@ -330,10 +386,30 @@ public sealed class DurableReasoningOrchestrator
         ReasoningSuccess success,
         EvidenceEpisodePlan? plan,
         IReadOnlyList<ReasoningEpisodeSummary> memory,
+        ReasoningAdmissionHandler? admissionHandler,
         CancellationToken cancellationToken)
     {
         var evaluationId = Guid.NewGuid();
         var evaluatedAt = _clock.UtcNow;
+        ReasoningAdmissionPlan? admission = null;
+        ReasoningEvaluation? domainEvaluation = null;
+        if (plan is not null && admissionHandler is not null)
+        {
+            domainEvaluation = new(
+                evaluationId,
+                request.SessionId,
+                request.SessionVersion,
+                ReasoningDecision.BeginRecoveryCheckIn,
+                plan.Episode,
+                success.Proposal.Intervention!.Rationale,
+                evaluatedAt);
+            admission = await admissionHandler(
+                    new(domainEvaluation, request),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            ValidateAdmission(request, plan, domainEvaluation, admission);
+        }
+
         var document = SerializeDocument(
             "accepted",
             null,
@@ -351,6 +427,7 @@ public sealed class DurableReasoningOrchestrator
             ReasoningSchemaVersions.V1,
             document);
         EvidenceEpisodeWrite? episodeWrite = null;
+        InterventionWrite? interventionWrite = null;
         if (plan is not null)
         {
             episodeWrite = new(
@@ -362,16 +439,29 @@ public sealed class DurableReasoningOrchestrator
                 JsonSerializer.Serialize(success.Proposal.Intervention, JsonOptions),
                 plan.Episode.Observations.Select((value, index) =>
                     new EvidenceObservationWrite(Guid.Parse(value.ObservationId), index)).ToArray());
+            if (admission is not null)
+            {
+                var active = admission.Runtime.ActiveIntervention!;
+                interventionWrite = new(
+                    active.Id,
+                    request.SessionId,
+                    evaluationId,
+                    plan.Episode.Id,
+                    active.AdmittedAtUtc,
+                    active.DisputedDuration,
+                    "Active");
+            }
         }
 
         var commit = await _repository.CommitReasoningEvaluationAsync(
             new(
                 request.SessionVersion,
+                admission?.Runtime ??
                 input.Runtime with { Version = input.Runtime.Version + 1 },
                 evaluation,
                 episodeWrite,
-                null,
-                []),
+                interventionWrite,
+                admission?.AuditEvents ?? []),
             cancellationToken).ConfigureAwait(false);
         return new(
             evaluationId,
@@ -380,6 +470,32 @@ public sealed class DurableReasoningOrchestrator
             commit.RejectionReason,
             commit.Applied ? plan?.Episode : null,
             request);
+    }
+
+    private static void ValidateAdmission(
+        ReasoningRequest request,
+        EvidenceEpisodePlan plan,
+        ReasoningEvaluation evaluation,
+        ReasoningAdmissionPlan? admission)
+    {
+        var runtime = admission?.Runtime;
+        var active = runtime?.ActiveIntervention;
+        var admittedEvaluation = active?.Evaluation;
+        if (runtime is null ||
+            runtime.Id != request.SessionId ||
+            runtime.ContractId != request.Contract.Id ||
+            runtime.Version != request.SessionVersion + 1 ||
+            runtime.State != FocusSessionState.RecoveryCheckIn ||
+            active is null ||
+            admittedEvaluation is null ||
+            admittedEvaluation.Id != evaluation.Id ||
+            admittedEvaluation.SessionId != request.SessionId ||
+            admittedEvaluation.SessionVersion != request.SessionVersion ||
+            admittedEvaluation.Decision != ReasoningDecision.BeginRecoveryCheckIn ||
+            admittedEvaluation.EvidenceEpisode?.Id != plan.Episode.Id)
+        {
+            throw new ReasoningAdmissionException("invalid_admission_plan");
+        }
     }
 
     private async Task<ReasoningOrchestrationResult> RecordRejectedAsync(
@@ -427,8 +543,20 @@ public sealed class DurableReasoningOrchestrator
             evaluation.Decision,
             recorded.RejectionReason ?? reason,
             null,
-            request);
+            request,
+            FailureCategory(reason, result));
     }
+
+    private static ReasoningFailureCategory? FailureCategory(
+        string reason,
+        ReasoningResult? result) =>
+        result switch
+        {
+            ReasoningFailure failure => failure.Category,
+            ReasoningInvalid => ReasoningFailureCategory.InvalidResponse,
+            null when reason == "technical_failure" => ReasoningFailureCategory.Unknown,
+            _ => null
+        };
 
     private EpisodeMemoryValidation ValidateEpisodeMemory(
         ReasoningEvaluationInput input,
@@ -792,6 +920,16 @@ public sealed class DurableReasoningOrchestrator
     private sealed class ReasoningInputException : InvalidOperationException
     {
         public ReasoningInputException(string reason)
+        {
+            Reason = reason;
+        }
+
+        public string Reason { get; }
+    }
+
+    private sealed class ReasoningAdmissionException : InvalidOperationException
+    {
+        public ReasoningAdmissionException(string reason)
         {
             Reason = reason;
         }
