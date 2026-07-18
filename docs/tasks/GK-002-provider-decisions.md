@@ -1,6 +1,6 @@
 # GK-002 — Provider, model, privacy, and live-smoke decisions
 
-**Status:** Human gate
+**Status:** In progress on `task/GK-002-provider-decisions`
 **Depends on:** None
 **Suggested branch:** `task/GK-002-provider-decisions`
 
@@ -38,3 +38,11 @@ Do not commit credentials, provider responses containing room imagery, or adapte
 - Production adapter code
 - Automated live-provider tests
 - Formal provider quality comparison
+
+## Delivery record
+
+- Provider/model decision: [ADR 0002](../adr/0002-openai-provider-and-model-stack.md)
+- Safe configuration contract: [provider-configuration.md](../provider-configuration.md)
+- Manual validation record: [GK-002-live-smoke-evidence.md](../validation/GK-002-live-smoke-evidence.md)
+- Remaining human gate: explicit camera/provider consent and a process-scoped
+  OpenAI API credential are required to run both live smoke checks.
