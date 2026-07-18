@@ -24,12 +24,37 @@ public sealed record SessionPreflightAttempt(
     Guid SetupId,
     PreflightStatus Status,
     PreflightRejection Rejection,
-    bool CanRetry);
+    bool CanRetry,
+    PreflightPreview? Preview);
+
+public sealed record PreflightPreview(
+    byte[] Jpeg,
+    int PixelWidth,
+    int PixelHeight);
 
 public sealed record SessionStartResult(
     PreflightStatus PreflightStatus,
     PreflightRejection Rejection,
     FocusSessionRuntimeView? Session);
+
+public sealed record SessionLiveStatus(
+    Guid SessionId,
+    string GoalTitle,
+    FocusSessionState State,
+    TimeSpan FocusElapsed,
+    TimeSpan FocusTarget,
+    TimeSpan FocusRemaining,
+    TimeSpan? StateCountdown,
+    DateTimeOffset ProjectedEndUtc,
+    bool MonitoringActive,
+    string? TechnicalFailure,
+    string? RecoveryPrompt,
+    bool CanCompleteGoal,
+    bool CanEndEarly,
+    bool CanSubmitRecovery,
+    bool CanReturnToRecovery,
+    bool IsTerminal,
+    EndedEarlyReason? EndedEarlyReason);
 
 public interface ISessionRuntimeScheduler
 {

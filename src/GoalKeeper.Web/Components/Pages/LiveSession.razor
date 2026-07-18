@@ -1,0 +1,391 @@
+@page "/sessions/{SessionId:guid}/live"
+@implements IAsyncDisposable
+@inject ISessionRuntimePresentation SessionUi
+
+<PageTitle>@(_view?.IsTerminal == true ? "Session complete" : "Focus session") · GoalKeeper</PageTitle>
+
+@if (_view is null && _error is null)
+{
+    <div class="loading-state" role="status">Connecting to your Focus Session…</div>
+}
+else if (_view is null)
+{
+    <section class="empty-state">
+        <p class="eyebrow">Session unavailable</p>
+        <h1>This live session isn’t connected.</h1>
+        <p>@_error</p>
+        <a class="button" href="/">Return to goals</a>
+    </section>
+}
+else if (_view.IsTerminal)
+{
+    <section class="terminal-state">
+        <span class="completion-mark" aria-hidden="true">✓</span>
+        <p class="eyebrow">Monitoring closed</p>
+        <h1>@_view.StateLabel</h1>
+        <p class="lede">@_view.StateMessage</p>
+        <div class="terminal-metric">
+            <strong>@FormatDuration(_view.FocusElapsed)</strong>
+            <span>authoritative focus time</span>
+        </div>
+        <div class="actions centered">
+            <a class="button" href="@($"/sessions/{SessionId}/review")">Optional session review</a>
+            <a class="button secondary" href="/">Return to goals</a>
+        </div>
+    </section>
+}
+else
+{
+    <header class="live-heading">
+        <div>
+            <p class="eyebrow">@_view.GoalTitle</p>
+            <h1>@_view.StateLabel</h1>
+            <p>@_view.StateMessage</p>
+        </div>
+        <div class="health-cluster" aria-label="Device status">
+            <span class="@MonitoringClass">
+                <i aria-hidden="true"></i>
+                @MonitoringLabel
+            </span>
+            <span class="health muted">MIC off</span>
+        </div>
+    </header>
+
+    @if (_view.TechnicalFailure is not null)
+    {
+        <div class="alert technical" role="status">
+            <strong>Monitoring needs attention.</strong>
+            @if (_view.State == FocusSessionState.MonitoringUnavailable)
+            {
+                <text>The outage grace period has elapsed, so the focus timer is paused while GoalKeeper reconnects.</text>
+            }
+            else
+            {
+                <text>GoalKeeper is retrying. The focus timer follows the current session state.</text>
+            }
+            This technical issue is never treated as behavioral evidence.
+        </div>
+    }
+    @if (_error is not null)
+    {
+        <div class="alert error" role="alert">@_error</div>
+    }
+
+    <section class="live-grid" aria-label="Live session status">
+        <section class="timer-stage" aria-labelledby="focus-time-label">
+            <span id="focus-time-label">Active focus remaining</span>
+            <strong>@FormatClock(_view.FocusRemaining)</strong>
+            <div class="progress-track"
+                 role="progressbar"
+                 aria-label="Focus target progress"
+                 aria-valuemin="0"
+                 aria-valuemax="@Math.Max(1, _view.FocusTarget.TotalSeconds)"
+                 aria-valuenow="@Math.Min(_view.FocusElapsed.TotalSeconds, _view.FocusTarget.TotalSeconds)">
+                <span style="@($"width: {ProgressPercent:F1}%")"></span>
+            </div>
+            <div class="timer-meta">
+                <span>@FormatDuration(_view.FocusElapsed) focused</span>
+                <span>Projected end @_view.ProjectedEndUtc.ToLocalTime().ToString("h:mm tt")</span>
+            </div>
+        </section>
+
+        @if (_view.StateCountdown is { } countdown)
+        {
+            <section class="state-countdown">
+                <span>@CountdownLabel</span>
+                <strong>@FormatClock(countdown)</strong>
+            </section>
+        }
+
+        @if (_view.CanSubmitRecovery)
+        {
+            <section class="recovery-panel" aria-labelledby="recovery-title">
+                <span class="recovery-kicker">Timer paused · Private check-in</span>
+                <h2 id="recovery-title">Let’s get the context right.</h2>
+                <p>@_view.RecoveryPrompt</p>
+                <EditForm Model="_recovery" OnValidSubmit="SubmitRecoveryAsync">
+                    <DataAnnotationsValidator />
+                    <ValidationSummary />
+                    <label for="recovery-response">What happened?</label>
+                    <InputTextArea id="recovery-response"
+                                   rows="4"
+                                   autocomplete="off"
+                                   @bind-Value="_recovery.Response" />
+                    <span class="field-hint">Use your own words. Text works now; voice can be added without changing this flow.</span>
+                    <button type="submit" disabled="@_commandInFlight">Send response</button>
+                </EditForm>
+            </section>
+        }
+        else if (_view.CanReturnToRecovery)
+        {
+            <section class="recovery-panel">
+                <span class="recovery-kicker">Timer paused</span>
+                <h2>Ready to respond?</h2>
+                <p>Return to the check-in before the response window closes.</p>
+                <button type="button" disabled="@_commandInFlight" @onclick="ReturnToRecoveryAsync">I’m back</button>
+            </section>
+        }
+        else if (_view.State == FocusSessionState.ScheduledBreak)
+        {
+            <section class="quiet-note">
+                <strong>Evidence is disabled during this break.</strong>
+                <span>Focus resumes automatically at the end of the scheduled time.</span>
+            </section>
+        }
+        else if (_view.State == FocusSessionState.MonitoringUnavailable)
+        {
+            <section class="quiet-note technical-copy">
+                <strong>No behavioral evidence can be submitted.</strong>
+                <span>GoalKeeper will resume the timer only after monitoring recovers.</span>
+            </section>
+        }
+    </section>
+
+    <footer class="session-actions">
+        @if (_view.CanCompleteGoal)
+        {
+            @if (_confirmingComplete)
+            {
+                <div class="confirm-strip" role="group" aria-label="Confirm Goal completion">
+                    <span>Mark the Goal complete and close this session?</span>
+                    <button type="button" disabled="@_commandInFlight" @onclick="CompleteGoalAsync">Yes, complete Goal</button>
+                    <button type="button" class="button secondary" @onclick="@(() => _confirmingComplete = false)">Keep focusing</button>
+                </div>
+            }
+            else
+            {
+                <button type="button" class="button secondary" @onclick="@(() => _confirmingComplete = true)">Complete Goal</button>
+            }
+        }
+        @if (_view.CanEndEarly)
+        {
+            @if (_confirmingEnd)
+            {
+                <div class="confirm-strip danger-zone" role="group" aria-label="Confirm ending session">
+                    <span>End now? Monitoring and camera access will close.</span>
+                    <button type="button" class="danger" disabled="@_commandInFlight" @onclick="EndEarlyAsync">Yes, end session</button>
+                    <button type="button" class="button secondary" @onclick="@(() => _confirmingEnd = false)">Continue session</button>
+                </div>
+            }
+            else
+            {
+                <button type="button" class="text-button danger-text" @onclick="@(() => _confirmingEnd = true)">End early</button>
+            }
+        }
+    </footer>
+}
+
+@code {
+    [Parameter] public Guid SessionId { get; set; }
+    private readonly RecoveryForm _recovery = new();
+    private readonly CancellationTokenSource _componentCancellation = new();
+    private CancellationTokenSource? _pollCancellation;
+    private LiveSessionPageView? _view;
+    private Task? _pollTask;
+    private string? _error;
+    private bool _confirmingComplete;
+    private bool _confirmingEnd;
+    private bool _commandInFlight;
+
+    private double ProgressPercent => _view is null || _view.FocusTarget <= TimeSpan.Zero
+        ? 0
+        : Math.Clamp(_view.FocusElapsed.TotalSeconds / _view.FocusTarget.TotalSeconds * 100, 0, 100);
+
+    private string CountdownLabel => _view?.State switch
+    {
+        FocusSessionState.ScheduledBreak => "Break ends in",
+        FocusSessionState.AwaitingResponse => "Response window",
+        FocusSessionState.MonitoringUnavailable => "Recovery timeout",
+        FocusSessionState.RecoveryWindow => "Recovery window",
+        _ => "Time remaining"
+    };
+
+    private string MonitoringLabel => _view switch
+    {
+        { State: FocusSessionState.MonitoringUnavailable } => "Camera unavailable",
+        { TechnicalFailure: not null } => "Monitoring degraded",
+        { MonitoringActive: true } => "Camera monitoring",
+        _ => "Camera paused"
+    };
+
+    private string MonitoringClass => _view switch
+    {
+        { State: FocusSessionState.MonitoringUnavailable } => "health paused",
+        { TechnicalFailure: not null } => "health warning",
+        { MonitoringActive: true } => "health good",
+        _ => "health paused"
+    };
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await StopPollingAsync();
+        _view = null;
+        _error = null;
+        _confirmingComplete = false;
+        _confirmingEnd = false;
+        _recovery.Response = "";
+        var sessionId = SessionId;
+        await RefreshAsync(sessionId);
+        if (_view is { IsTerminal: false })
+        {
+            _pollCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                _componentCancellation.Token);
+            _pollTask = PollAsync(sessionId, _pollCancellation.Token);
+        }
+    }
+
+    private async Task PollAsync(Guid sessionId, CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                await InvokeAsync(async () =>
+                {
+                    if (cancellationToken.IsCancellationRequested ||
+                        SessionId != sessionId)
+                    {
+                        return;
+                    }
+
+                    await RefreshAsync(sessionId, cancellationToken);
+                    StateHasChanged();
+                });
+                if (_view?.IsTerminal == true)
+                {
+                    return;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    private async Task RefreshAsync(
+        Guid sessionId,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var refreshed = await SessionUi.GetLiveAsync(sessionId, cancellationToken);
+            if (SessionId != sessionId)
+            {
+                return;
+            }
+
+            _view = refreshed;
+            _error = _view is null
+                ? "The requested session is not the current local runtime."
+                : null;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+    }
+
+    private async Task CompleteGoalAsync() =>
+        await RunCommandAsync(token => SessionUi.CompleteGoalAsync(SessionId, token));
+
+    private async Task EndEarlyAsync() =>
+        await RunCommandAsync(token => SessionUi.EndEarlyAsync(SessionId, token));
+
+    private async Task ReturnToRecoveryAsync() =>
+        await RunCommandAsync(token => SessionUi.ReturnToRecoveryAsync(SessionId, token));
+
+    private async Task SubmitRecoveryAsync()
+    {
+        await RunCommandAsync(token =>
+            SessionUi.SubmitRecoveryAsync(SessionId, _recovery.Response, token));
+        if (_error is null && _view?.State != FocusSessionState.RecoveryCheckIn)
+        {
+            _recovery.Response = "";
+        }
+    }
+
+    private async Task RunCommandAsync(
+        Func<CancellationToken, Task<LiveSessionPageView?>> command)
+    {
+        if (_commandInFlight)
+        {
+            return;
+        }
+
+        _commandInFlight = true;
+        _error = null;
+        try
+        {
+            _view = await command(_componentCancellation.Token);
+            _confirmingComplete = false;
+            _confirmingEnd = false;
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _commandInFlight = false;
+        }
+    }
+
+    private static string FormatClock(TimeSpan value) =>
+        value.TotalHours >= 1
+            ? $"{(int)value.TotalHours:00}:{value.Minutes:00}:{value.Seconds:00}"
+            : $"{(int)value.TotalMinutes:00}:{value.Seconds:00}";
+
+    private static string FormatDuration(TimeSpan value) =>
+        value.TotalHours >= 1
+            ? $"{(int)value.TotalHours}h {value.Minutes}m"
+            : value.TotalMinutes >= 1
+                ? $"{(int)value.TotalMinutes}m {value.Seconds}s"
+                : $"{Math.Max(0, value.Seconds)}s";
+
+    public async ValueTask DisposeAsync()
+    {
+        await _componentCancellation.CancelAsync();
+        await StopPollingAsync();
+        _componentCancellation.Dispose();
+    }
+
+    private async Task StopPollingAsync()
+    {
+        var cancellation = _pollCancellation;
+        var pollTask = _pollTask;
+        _pollCancellation = null;
+        _pollTask = null;
+        if (cancellation is null)
+        {
+            return;
+        }
+
+        await cancellation.CancelAsync();
+        try
+        {
+            if (pollTask is not null)
+            {
+                await pollTask;
+            }
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+        }
+        finally
+        {
+            cancellation.Dispose();
+        }
+    }
+
+    private sealed class RecoveryForm
+    {
+        [System.ComponentModel.DataAnnotations.Required(
+            ErrorMessage = "Tell GoalKeeper what happened before continuing.")]
+        [System.ComponentModel.DataAnnotations.StringLength(2000)]
+        public string Response { get; set; } = "";
+    }
+}

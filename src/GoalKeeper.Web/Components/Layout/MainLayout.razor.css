@@ -12,6 +12,23 @@
     z-index: 1000;
 }
 
+.skip-link {
+    position: fixed;
+    z-index: 1100;
+    top: .5rem;
+    left: .5rem;
+    padding: .65rem .85rem;
+    border-radius: .35rem;
+    background: #18352b;
+    color: #fff;
+    text-decoration: none;
+    transform: translateY(-150%);
+}
+
+.skip-link:focus {
+    transform: translateY(0);
+}
+
     #blazor-error-ui .dismiss {
         cursor: pointer;
         position: absolute;

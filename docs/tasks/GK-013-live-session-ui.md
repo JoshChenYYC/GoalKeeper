@@ -1,8 +1,9 @@
 # GK-013 — Live Focus Session UI
 
-**Status:** Ready
+**Status:** Done
 **Depends on:** GK-011
-**Suggested branch:** `task/GK-013-live-session-ui`
+**Owner:** `/root/gk013_live_ui`
+**Branch:** `task/GK-013-live-session-ui`
 
 ## Outcome
 

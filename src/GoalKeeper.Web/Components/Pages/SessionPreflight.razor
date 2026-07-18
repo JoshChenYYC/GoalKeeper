@@ -1,0 +1,201 @@
+@page "/sessions/{SetupId:guid}/preflight"
+@inject ISessionRuntimePresentation SessionUi
+@inject NavigationManager Navigation
+
+<PageTitle>Camera preflight · GoalKeeper</PageTitle>
+
+@if (_view is null && _error is null)
+{
+    <div class="loading-state" role="status">Preparing camera preflight…</div>
+}
+else if (_view is null)
+{
+    <section class="empty-state">
+        <p class="eyebrow">Preflight unavailable</p>
+        <h1>The camera check could not open.</h1>
+        <p role="alert">@_error</p>
+        <div class="actions">
+            <button type="button" @onclick="ReloadAsync">Try again</button>
+            <a class="button secondary" href="/">Return to goals</a>
+        </div>
+    </section>
+}
+else
+{
+    <header class="page-heading compact">
+        <p class="eyebrow">Mandatory preflight</p>
+        <h1>Set a quiet frame.</h1>
+        <p class="lede">Sit where you plan to focus. Keep your face and workspace comfortably visible. No special pose is needed.</p>
+    </header>
+
+    @if (_error is not null)
+    {
+        <div class="alert error" role="alert"><strong>Preflight could not continue.</strong> @_error</div>
+    }
+
+    <div class="preflight-layout">
+        <section class="camera-stage" aria-label="Camera preview">
+            @if (_busy)
+            {
+                <div class="camera-empty" role="status">
+                    <span class="camera-mark pulse" aria-hidden="true"></span>
+                    <strong>Checking the camera…</strong>
+                    <span>This may take a few seconds.</span>
+                </div>
+            }
+            else if (_view.PreviewDataUrl is not null)
+            {
+                <img src="@_view.PreviewDataUrl"
+                     width="@_view.PreviewWidth"
+                     height="@_view.PreviewHeight"
+                     alt="Captured camera view for preflight confirmation" />
+                <span class="camera-indicator"><i aria-hidden="true"></i> Camera preview</span>
+            }
+            else
+            {
+                <div class="camera-empty">
+                    <span class="camera-mark" aria-hidden="true"></span>
+                    <strong>Your camera is off</strong>
+                    <span>It activates only when you capture.</span>
+                </div>
+            }
+        </section>
+
+        <aside class="preflight-rail" aria-label="Preflight controls">
+            <div class="session-mini">
+                <span>@_view.TargetFocus.TotalMinutes:g min focus</span>
+                <strong>@_view.GoalTitle</strong>
+                <small>@_view.ScheduledBreakCount scheduled break@(_view.ScheduledBreakCount == 1 ? "" : "s")</small>
+            </div>
+
+            @if (_view.StatusMessage is not null)
+            {
+                <div class="@StatusClass" role="@(_view.CanConfirm ? "status" : "alert")">
+                    @_view.StatusMessage
+                </div>
+            }
+
+            @if (_view.CanConfirm)
+            {
+                <label class="check-row">
+                    <input type="checkbox" @bind="_viewConfirmed" />
+                    <span>The view is correct and only I am visible.</span>
+                </label>
+                <button type="button"
+                        disabled="@(!_viewConfirmed || _busy)"
+                        @onclick="StartAsync">Confirm and start focus</button>
+                <button type="button" class="button secondary" disabled="@_busy" @onclick="RetryAsync">Capture again</button>
+            }
+            else
+            {
+                <button type="button"
+                        disabled="@_busy"
+                        @onclick="@(_view.CanRetry ? RetryAsync : CaptureAsync)">
+                    @(_view.CanRetry ? "Try another capture" : "Capture camera view")
+                </button>
+            }
+
+            <button type="button" class="text-button danger-text" disabled="@_busy" @onclick="CancelAsync">Cancel setup</button>
+
+            <div class="device-note">
+                <span aria-hidden="true">MIC</span>
+                <p><strong>Microphone off</strong><br />It is never used during preflight.</p>
+            </div>
+        </aside>
+    </div>
+}
+
+@code {
+    [Parameter] public Guid SetupId { get; set; }
+    private PreflightPageView? _view;
+    private bool _viewConfirmed;
+    private bool _busy;
+    private string? _error;
+
+    private string StatusClass => _view?.CanConfirm == true ? "alert success" : "alert warning";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            _view = await SessionUi.GetPreflightAsync(SetupId);
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+    }
+
+    private async Task ReloadAsync()
+    {
+        _error = null;
+        await OnParametersSetAsync();
+    }
+
+    private Task CaptureAsync() => CaptureCoreAsync(retry: false);
+    private Task RetryAsync() => CaptureCoreAsync(retry: true);
+
+    private async Task CaptureCoreAsync(bool retry)
+    {
+        _busy = true;
+        _error = null;
+        _viewConfirmed = false;
+        try
+        {
+            _view = await SessionUi.CaptureAsync(SetupId, retry);
+        }
+        catch (Exception exception)
+        {
+            _error = "Check that the camera is connected and available, then try again. " + exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task StartAsync()
+    {
+        if (!_viewConfirmed || _busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            var result = await SessionUi.ConfirmAndStartAsync(SetupId);
+            if (result.Started && result.SessionId is { } sessionId)
+            {
+                Navigation.NavigateTo($"/sessions/{sessionId}/live");
+                return;
+            }
+
+            _error = result.Error ?? "The Focus Session could not start.";
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task CancelAsync()
+    {
+        _busy = true;
+        try
+        {
+            await SessionUi.CancelPreflightAsync(SetupId);
+            Navigation.NavigateTo("/");
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+            _busy = false;
+        }
+    }
+}
