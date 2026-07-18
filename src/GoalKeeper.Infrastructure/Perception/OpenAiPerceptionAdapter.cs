@@ -43,12 +43,13 @@ public sealed class OpenAiPerceptionAdapter : IPerceptionPort
         var started = Stopwatch.GetTimestamp();
         var requestId = LocalRequestId();
         var model = _options.Model;
+        ObservationValidationFailure? repairFailure = null;
 
         for (var attempt = 0; attempt < 2; attempt++)
         {
             var call = await SendAsync(
                 request,
-                isRepair: attempt == 1,
+                repairFailure,
                 cancellationToken);
             requestId = call.RequestId;
 
@@ -68,6 +69,8 @@ public sealed class OpenAiPerceptionAdapter : IPerceptionPort
                     valid.Value,
                     Metadata(model, requestId, started));
             }
+
+            repairFailure = ((InvalidObservation)validation).Failure;
         }
 
         return Failure(
@@ -79,7 +82,7 @@ public sealed class OpenAiPerceptionAdapter : IPerceptionPort
 
     private async Task<ProviderCall> SendAsync(
         PerceptionRequest request,
-        bool isRepair,
+        ObservationValidationFailure? repairFailure,
         CancellationToken cancellationToken)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
@@ -88,7 +91,7 @@ public sealed class OpenAiPerceptionAdapter : IPerceptionPort
 
         try
         {
-            using var message = CreateRequest(request, isRepair);
+            using var message = CreateRequest(request, repairFailure);
             using var response = await _httpClient.SendAsync(
                 message,
                 HttpCompletionOption.ResponseHeadersRead,
@@ -148,7 +151,7 @@ public sealed class OpenAiPerceptionAdapter : IPerceptionPort
 
     private HttpRequestMessage CreateRequest(
         PerceptionRequest request,
-        bool isRepair)
+        ObservationValidationFailure? repairFailure)
     {
         var imageData = Convert.ToBase64String(request.JpegBytes.Span);
         var payload = new JsonObject
@@ -166,8 +169,8 @@ public sealed class OpenAiPerceptionAdapter : IPerceptionPort
                         new JsonObject
                         {
                             ["type"] = "input_text",
-                            ["text"] = isRepair
-                                ? "Re-examine the image and return one corrected schema instance."
+                            ["text"] = repairFailure is not null
+                                ? RepairInstruction(repairFailure)
                                 : "Examine the image and return one schema instance."
                         },
                         new JsonObject
@@ -203,6 +206,16 @@ public sealed class OpenAiPerceptionAdapter : IPerceptionPort
             "Bearer",
             _options.ApiKey);
         return message;
+    }
+
+    private static string RepairInstruction(
+        ObservationValidationFailure failure)
+    {
+        var issues = failure.Issues
+            .Take(8)
+            .Select(issue => $"{issue.Path} ({issue.Code})");
+        return "Re-examine the image and return one corrected schema instance. " +
+               $"Correct these local validation issues: {string.Join(", ", issues)}.";
     }
 
     private static async Task<byte[]?> ReadBoundedAsync(

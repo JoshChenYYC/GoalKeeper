@@ -1,0 +1,17 @@
+{
+  "id": "resp_valid_empty",
+  "object": "response",
+  "status": "completed",
+  "model": "gpt-5.6-luna-2026-07-01",
+  "output": [
+    {
+      "type": "message",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "{\"schema_version\":1,\"image_quality\":{\"value\":\"adequate\",\"limitations\":[]},\"people_count\":{\"status\":\"not_visible\",\"value\":0,\"support\":\"direct\",\"limitations\":[]},\"objects\":[\"desk\"],\"visible_cues\":[]}"
+        }
+      ]
+    }
+  ]
+}

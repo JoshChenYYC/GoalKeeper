@@ -23,29 +23,80 @@
       "required": ["value", "limitations"]
     },
     "people_count": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "status": {
-          "type": "string",
-          "enum": ["counted", "not_visible", "unknown"]
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": ["counted"]
+            },
+            "value": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20
+            },
+            "support": {
+              "type": "string",
+              "enum": ["direct", "partial", "inferred"]
+            },
+            "limitations": {
+              "type": "array",
+              "items": { "type": "string" },
+              "maxItems": 8
+            }
+          },
+          "required": ["status", "value", "support", "limitations"]
         },
-        "value": {
-          "type": ["integer", "null"],
-          "minimum": 0,
-          "maximum": 20
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": ["not_visible"]
+            },
+            "value": {
+              "type": "integer",
+              "enum": [0]
+            },
+            "support": {
+              "type": "string",
+              "enum": ["direct", "partial", "inferred"]
+            },
+            "limitations": {
+              "type": "array",
+              "items": { "type": "string" },
+              "maxItems": 8
+            }
+          },
+          "required": ["status", "value", "support", "limitations"]
         },
-        "support": {
-          "type": "string",
-          "enum": ["direct", "partial", "inferred", "unavailable"]
-        },
-        "limitations": {
-          "type": "array",
-          "items": { "type": "string" },
-          "maxItems": 8
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": ["unknown"]
+            },
+            "value": {
+              "type": "null"
+            },
+            "support": {
+              "type": "string",
+              "enum": ["unavailable"]
+            },
+            "limitations": {
+              "type": "array",
+              "items": { "type": "string" },
+              "maxItems": 8
+            }
+          },
+          "required": ["status", "value", "support", "limitations"]
         }
-      },
-      "required": ["status", "value", "support", "limitations"]
+      ]
     },
     "objects": {
       "type": "array",

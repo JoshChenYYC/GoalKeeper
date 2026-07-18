@@ -52,6 +52,46 @@ public sealed class HostedPerceptionAdapterTests
                 .GetProperty("visible_cues")
                 .GetProperty("maxItems")
                 .GetInt32());
+        var peopleCountBranches = format.GetProperty("schema")
+            .GetProperty("properties")
+            .GetProperty("people_count")
+            .GetProperty("anyOf");
+        Assert.Equal(3, peopleCountBranches.GetArrayLength());
+        Assert.Equal(
+            "counted",
+            peopleCountBranches[0]
+                .GetProperty("properties")
+                .GetProperty("status")
+                .GetProperty("enum")[0]
+                .GetString());
+        Assert.Equal(
+            1,
+            peopleCountBranches[0]
+                .GetProperty("properties")
+                .GetProperty("value")
+                .GetProperty("minimum")
+                .GetInt32());
+        Assert.Equal(
+            "not_visible",
+            peopleCountBranches[1]
+                .GetProperty("properties")
+                .GetProperty("status")
+                .GetProperty("enum")[0]
+                .GetString());
+        Assert.Equal(
+            0,
+            peopleCountBranches[1]
+                .GetProperty("properties")
+                .GetProperty("value")
+                .GetProperty("enum")[0]
+                .GetInt32());
+        Assert.Equal(
+            "null",
+            peopleCountBranches[2]
+                .GetProperty("properties")
+                .GetProperty("value")
+                .GetProperty("type")
+                .GetString());
 
         var content = payload.RootElement.GetProperty("input")[0].GetProperty("content");
         var image = content[1];
@@ -79,7 +119,34 @@ public sealed class HostedPerceptionAdapterTests
         Assert.Equal(2, handler.Requests.Count);
         Assert.DoesNotContain("Re-examine", handler.Requests[0].Body, StringComparison.Ordinal);
         Assert.Contains("Re-examine", handler.Requests[1].Body, StringComparison.Ordinal);
+        Assert.Contains("$.people_count (MissingField)", handler.Requests[1].Body, StringComparison.Ordinal);
+        Assert.Contains("$.objects (InvalidType)", handler.Requests[1].Body, StringComparison.Ordinal);
         Assert.DoesNotContain("objects\\\":\\\"laptop", handler.Requests[1].Body, StringComparison.Ordinal);
+        Assert.DoesNotContain(TestApiKey, handler.Requests[1].Body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Empty_scene_people_count_mismatch_is_explained_to_the_repair_request()
+    {
+        var handler = new ScriptedHandler(
+            Success("inconsistent-empty-response.json", "req-inconsistent-empty"),
+            Success("valid-empty-response.json", "req-valid-empty"));
+        var adapter = CreateAdapter(handler);
+
+        var result = Assert.IsType<PerceptionSuccess>(await adapter.ObserveAsync(Request()));
+
+        Assert.Equal(PeopleCountStatus.NotVisible, result.Proposal.PeopleCount.Status);
+        Assert.Equal(0, result.Proposal.PeopleCount.Value);
+        Assert.Equal("req-valid-empty", result.Metadata.RequestId);
+        Assert.Equal(2, handler.Requests.Count);
+        Assert.Contains(
+            "$.people_count.value (InconsistentValue)",
+            handler.Requests[1].Body,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "\\\"value\\\":null",
+            handler.Requests[1].Body,
+            StringComparison.Ordinal);
     }
 
     [Fact]
