@@ -105,12 +105,31 @@ public sealed class SessionRuntimeController(
             lock (_stateSync)
             {
                 _setupId = result.Status == PreflightStatus.Cancelled ? null : setupId;
+                if (result.Status != PreflightStatus.Cancelled &&
+                    _sessionState is FocusSessionState.Fulfilled or FocusSessionState.EndedEarly)
+                {
+                    _sessionId = null;
+                    _sessionVersion = 0;
+                    _sessionState = null;
+                }
+
                 _technicalFailure = result.Status == PreflightStatus.TechnicalFailure
                     ? result.Rejection.ToString()
                     : null;
             }
 
-            return new(setupId, result.Status, result.Rejection, result.CanRetry);
+            var preview = result.Frame is null
+                ? null
+                : new PreflightPreview(
+                    result.Frame.Jpeg.ToArray(),
+                    result.Frame.PixelWidth,
+                    result.Frame.PixelHeight);
+            return new(
+                setupId,
+                result.Status,
+                result.Rejection,
+                result.CanRetry,
+                preview);
         }
         finally
         {
@@ -142,7 +161,12 @@ public sealed class SessionRuntimeController(
                 _technicalFailure = null;
             }
 
-            return new(setupId, result.Status, result.Rejection, result.CanRetry);
+            return new(
+                setupId,
+                result.Status,
+                result.Rejection,
+                result.CanRetry,
+                null);
         }
         finally
         {
@@ -456,6 +480,79 @@ public sealed class SessionRuntimeController(
             current?.Runtime.ProjectedEndUtc,
             worker is { IsCompleted: false },
             technicalFailure);
+    }
+
+    public async Task<SessionLiveStatus?> GetLiveStatusAsync(
+        Guid sessionId,
+        CancellationToken cancellationToken = default)
+    {
+        var status = await GetStatusAsync(cancellationToken).ConfigureAwait(false);
+        if (status.SessionId != sessionId || status.SetupId is not { } setupId)
+        {
+            return null;
+        }
+
+        var session = await repository.GetSessionAsync(sessionId, cancellationToken)
+            .ConfigureAwait(false);
+        var setup = await repository.GetSetupAsync(setupId, cancellationToken)
+            .ConfigureAwait(false);
+        if (session is null || setup is null)
+        {
+            return null;
+        }
+
+        var contract = setup.Contract;
+        if (contract.Id != session.ContractId)
+        {
+            throw new PersistenceConflictException(
+                "The active Session Contract identity changed.");
+        }
+
+        var now = clock.MonotonicNow;
+        var elapsed = session.Runtime.Timer.Accumulated;
+        if (session.Runtime.Timer.RunningSince is { } runningSince)
+        {
+            elapsed += now - runningSince;
+        }
+
+        elapsed = Positive(elapsed);
+        var remaining = Positive(contract.TargetFocusDuration - elapsed);
+        TimeSpan? countdown = session.State switch
+        {
+            FocusSessionState.ScheduledBreak when session.Runtime.BreakEndsAt is { } deadline =>
+                Positive(deadline - now),
+            FocusSessionState.AwaitingResponse when session.Runtime.ResponseDeadline is { } deadline =>
+                Positive(deadline - now),
+            FocusSessionState.MonitoringUnavailable when session.Runtime.MonitoringDeadline is { } deadline =>
+                Positive(deadline - now),
+            FocusSessionState.RecoveryWindow when session.Runtime.CurrentRecoveryWindow is { } window =>
+                Positive(window.EndsAt - now),
+            _ => null
+        };
+        var recoveryPrompt = session.Runtime.ActiveIntervention?.Evaluation.Rationale ??
+            (session.State == FocusSessionState.RecoveryCheckIn
+                ? "GoalKeeper noticed a pattern that may not match this session. What happened?"
+                : null);
+        var terminal = session.State is
+            FocusSessionState.Fulfilled or FocusSessionState.EndedEarly;
+        return new(
+            session.Id,
+            contract.GoalTitle,
+            session.State,
+            elapsed,
+            contract.TargetFocusDuration,
+            remaining,
+            countdown,
+            session.Runtime.ProjectedEndUtc,
+            status.HasActiveWorker && !terminal,
+            status.TechnicalFailure,
+            recoveryPrompt,
+            session.State is FocusSessionState.Focusing or FocusSessionState.RecoveryWindow,
+            !terminal,
+            session.State == FocusSessionState.RecoveryCheckIn,
+            session.State == FocusSessionState.AwaitingResponse,
+            terminal,
+            session.Runtime.EndedEarlyReason);
     }
 
     public async Task RunSchedulerAsync(
@@ -921,16 +1018,14 @@ public sealed class SessionRuntimeController(
     {
         lock (_stateSync)
         {
-            if (view.State is FocusSessionState.Fulfilled or FocusSessionState.EndedEarly)
-            {
-                _setupId = null;
-            }
-
             _sessionId = view.Id;
             _sessionVersion = view.Version;
             _sessionState = view.State;
         }
     }
+
+    private static TimeSpan Positive(TimeSpan value) =>
+        value < TimeSpan.Zero ? TimeSpan.Zero : value;
 
     private RuntimeAuditWrite Audit(
         string eventName,

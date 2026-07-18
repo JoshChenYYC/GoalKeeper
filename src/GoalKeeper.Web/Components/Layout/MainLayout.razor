@@ -1,14 +1,19 @@
 ﻿@inherits LayoutComponentBase
 
+<a class="skip-link" href="#main-content">Skip to main content</a>
 <header class="topbar">
-    <a class="brand" href="/">GoalKeeper</a>
-    <nav>
+    <a class="brand" href="/" aria-label="GoalKeeper home">
+        <span class="brand-mark" aria-hidden="true">GK</span>
+        <span>GoalKeeper</span>
+    </a>
+    <nav aria-label="Primary navigation">
         <NavLink href="/" Match="NavLinkMatch.All">Goals</NavLink>
-        <NavLink href="profile">Deviation Profile</NavLink>
+        <NavLink href="profile">Focus profile</NavLink>
     </nav>
+    <span class="local-indicator"><i aria-hidden="true"></i> Local workspace</span>
 </header>
 
-<main class="shell">
+<main id="main-content" class="shell" tabindex="-1">
     @Body
 </main>
 

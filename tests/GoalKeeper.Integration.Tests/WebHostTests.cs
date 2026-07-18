@@ -5,6 +5,7 @@ using GoalKeeper.Application.Reasoning;
 using GoalKeeper.Application.Recovery;
 using GoalKeeper.Application.Runtime;
 using GoalKeeper.Web.Runtime;
+using GoalKeeper.Web.Presentation;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
@@ -33,7 +34,7 @@ public sealed class WebHostTests
 
             Assert.True(response.IsSuccessStatusCode, html);
             Assert.Contains("<h1>Goals</h1>", html);
-            Assert.Contains("Deviation Profile", html);
+            Assert.Contains("Focus profile", html);
             Assert.True(File.Exists(Path.Combine(dataRoot, "goalkeeper.db")));
         }
         finally
@@ -84,10 +85,53 @@ public sealed class WebHostTests
             Assert.IsType<SystemSessionRuntimeScheduler>(
                 scope.ServiceProvider.GetRequiredService<ISessionRuntimeScheduler>());
             Assert.NotNull(factory.Services.GetRequiredService<MonitoringPipeline>());
+            Assert.NotNull(factory.Services.GetRequiredService<ISessionRuntimePresentation>());
             Assert.Null(concreteRegistry.ActiveSessionId);
             Assert.Equal(
                 SessionRuntimeControllerState.Idle,
                 (await controller.GetStatusAsync()).ControllerState);
+        }
+        finally
+        {
+            if (Directory.Exists(dataRoot))
+            {
+                Directory.Delete(dataRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task Live_and_preflight_routes_render_actionable_disconnected_states()
+    {
+        var dataRoot = Path.Combine(
+            Path.GetTempPath(),
+            $"goalkeeper-live-ui-host-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dataRoot);
+        try
+        {
+            using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+            {
+                builder.UseSetting("GoalKeeper:DataRoot", dataRoot);
+                builder.ConfigureLogging(logging => logging.ClearProviders());
+            });
+            using var client = factory.CreateClient();
+
+            var liveResponse = await client.GetAsync($"/sessions/{Guid.NewGuid()}/live");
+            var liveHtml = await liveResponse.Content.ReadAsStringAsync();
+            var preflightResponse = await client.GetAsync($"/sessions/{Guid.NewGuid()}/preflight");
+            var preflightHtml = await preflightResponse.Content.ReadAsStringAsync();
+            var readyResponse = await client.GetAsync($"/sessions/{Guid.NewGuid()}/ready");
+            var readyHtml = await readyResponse.Content.ReadAsStringAsync();
+
+            Assert.True(liveResponse.IsSuccessStatusCode, liveHtml);
+            Assert.Contains("This live session isn’t connected.", liveHtml);
+            Assert.Contains("Return to goals", liveHtml);
+            Assert.True(preflightResponse.IsSuccessStatusCode, preflightHtml);
+            Assert.Contains("The camera check could not open.", preflightHtml);
+            Assert.Contains("Try again", preflightHtml);
+            Assert.True(readyResponse.IsSuccessStatusCode, readyHtml);
+            Assert.Contains("This setup is no longer ready.", readyHtml);
+            Assert.Contains("Return to goals", readyHtml);
         }
         finally
         {

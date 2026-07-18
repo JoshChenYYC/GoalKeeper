@@ -1,32 +1,67 @@
 @page "/sessions/{SetupId:guid}/ready"
 @inject SetupWorkflow Workflow
 
-<PageTitle>Session Ready · GoalKeeper</PageTitle>
-<h1>Session ready</h1>
+<PageTitle>Session ready · GoalKeeper</PageTitle>
 
-@if (_setup is null)
+@if (_setup is null && _error is null)
 {
-    <p>Loading…</p>
+    <div class="loading-state" role="status">Loading your session contract…</div>
+}
+else if (_setup is null || _setup.Status != SessionSetupStatus.Ready)
+{
+    <section class="empty-state">
+        <p class="eyebrow">Session unavailable</p>
+        <h1>This setup is no longer ready.</h1>
+        <p role="alert">@(_error ?? "It may already have started or been cancelled.")</p>
+        <a class="button" href="/">Return to goals</a>
+    </section>
 }
 else
 {
-    <section class="panel ready">
-        <span class="status">@_setup.Status</span>
-        <h2>@_setup.Contract.GoalTitle</h2>
-        <dl>
-            <dt>Target focus</dt><dd>@_setup.Contract.TargetFocusDuration.TotalMinutes:g minutes</dd>
-            <dt>Reasoning</dt><dd>@_setup.Contract.ReasoningMode · @_setup.Contract.Sensitivity</dd>
-            <dt>Breaks</dt><dd>@_setup.Contract.ScheduledBreaks.Count</dd>
-            <dt>Profile</dt><dd>@_setup.Contract.DeviationProfileName</dd>
+    <header class="page-heading">
+        <p class="eyebrow">Contract confirmed</p>
+        <h1>One check before focus.</h1>
+        <p class="lede">Preflight confirms the camera is usable and exactly one person is visible. Monitoring cannot begin until you approve the captured view.</p>
+    </header>
+
+    <section class="contract-sheet" aria-labelledby="contract-title">
+        <div>
+            <span class="status-dot">Ready</span>
+            <h2 id="contract-title">@_setup.Contract.GoalTitle</h2>
+        </div>
+        <dl class="contract-facts">
+            <div><dt>Focus target</dt><dd>@_setup.Contract.TargetFocusDuration.TotalMinutes:g min</dd></div>
+            <div><dt>Scheduled breaks</dt><dd>@_setup.Contract.ScheduledBreaks.Count</dd></div>
+            <div><dt>Reasoning</dt><dd>@_setup.Contract.ReasoningMode · @_setup.Contract.Sensitivity</dd></div>
+            <div><dt>Profile</dt><dd>@_setup.Contract.DeviationProfileName</dd></div>
         </dl>
-        <p class="notice">The contract is immutable. Camera preflight and monitoring arrive in Phase 3.</p>
+        <div class="privacy-note">
+            <span aria-hidden="true">●</span>
+            <p><strong>Camera use stays visible.</strong> Preflight captures a still image each time you choose Capture. After you start, the camera checks the live session. Recovery is text-only and the microphone remains off in this version.</p>
+        </div>
+        <div class="actions">
+            <a class="button" href="@($"/sessions/{SetupId}/preflight")">Begin camera preflight</a>
+            <a class="button secondary" href="/">Not now</a>
+        </div>
     </section>
 }
 
 @code {
     [Parameter] public Guid SetupId { get; set; }
     private SessionSetupView? _setup;
+    private string? _error;
 
-    protected override async Task OnParametersSetAsync() =>
-        _setup = await Workflow.GetSetupAsync(SetupId) ?? throw new KeyNotFoundException("Session Setup not found.");
+    protected override async Task OnParametersSetAsync()
+    {
+        try
+        {
+            _setup = await Workflow.GetSetupAsync(SetupId);
+            _error = _setup is null ? "Session Setup not found." : null;
+        }
+        catch (Exception exception)
+        {
+            _setup = null;
+            _error = exception.Message;
+        }
+    }
 }

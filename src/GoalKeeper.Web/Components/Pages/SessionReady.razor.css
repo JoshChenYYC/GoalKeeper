@@ -1,0 +1,145 @@
+.loading-state {
+    min-height: 12rem;
+    display: grid;
+    place-items: center;
+    color: #59665f;
+    text-align: center;
+}
+
+.page-heading {
+    max-width: 44rem;
+    margin-bottom: 2rem;
+}
+
+.eyebrow {
+    margin: 0 0 .65rem;
+    color: #1b6b51;
+    font-size: .78rem;
+    font-weight: 800;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+}
+
+.page-heading .lede {
+    max-width: 42rem;
+    margin: 0;
+    line-height: 1.65;
+}
+
+.contract-sheet {
+    display: grid;
+    gap: 1.5rem;
+    padding: clamp(1.25rem, 3vw, 2rem);
+    border: 1px solid #dae1dc;
+    border-radius: 16px;
+    background: #fff;
+    box-shadow: 0 8px 24px rgb(21 60 49 / 7%);
+}
+
+.contract-sheet > div:first-child {
+    display: grid;
+    gap: .55rem;
+}
+
+.contract-sheet h2 {
+    margin: 0;
+    font-size: clamp(1.4rem, 3vw, 2rem);
+    letter-spacing: -.02em;
+}
+
+.status-dot {
+    width: fit-content;
+    display: inline-flex;
+    align-items: center;
+    gap: .45rem;
+    color: #18513f;
+    font-size: .8rem;
+    font-weight: 800;
+}
+
+.status-dot::before {
+    width: .55rem;
+    height: .55rem;
+    border-radius: 50%;
+    background: #2a8466;
+    content: "";
+}
+
+.contract-facts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem 1.5rem;
+    margin: 0;
+    padding: 1.25rem 0;
+    border-block: 1px solid #e3e8e4;
+}
+
+.contract-facts > div {
+    min-width: 0;
+}
+
+.contract-facts dt {
+    margin-bottom: .3rem;
+    color: #68736d;
+    font-size: .78rem;
+    font-weight: 700;
+}
+
+.contract-facts dd {
+    color: #18221e;
+    font-weight: 750;
+    overflow-wrap: anywhere;
+}
+
+.privacy-note {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: .75rem;
+    align-items: start;
+    padding: 1rem;
+    border-left: 3px solid #2a8466;
+    background: #f3f7f4;
+    color: #405048;
+}
+
+.privacy-note > span {
+    color: #2a8466;
+    font-size: .65rem;
+    line-height: 1.9;
+}
+
+.privacy-note p {
+    margin: 0;
+    line-height: 1.55;
+}
+
+.actions {
+    align-items: center;
+}
+
+.button {
+    min-height: 2.75rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.button:focus-visible {
+    outline: 3px solid #8fcab6;
+    outline-offset: 3px;
+}
+
+@media (max-width: 640px) {
+    .page-heading {
+        margin-bottom: 1.5rem;
+    }
+
+    .contract-facts {
+        grid-template-columns: 1fr;
+    }
+
+    .actions {
+        display: grid;
+        grid-template-columns: 1fr;
+    }
+}

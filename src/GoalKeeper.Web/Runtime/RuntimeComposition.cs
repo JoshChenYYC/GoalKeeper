@@ -6,6 +6,7 @@ using GoalKeeper.Application.Recovery;
 using GoalKeeper.Application.Runtime;
 using GoalKeeper.Domain;
 using GoalKeeper.Infrastructure;
+using GoalKeeper.Web.Presentation;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 
@@ -34,6 +35,18 @@ public static class RuntimeServiceCollectionExtensions
                     options.TickInterval > TimeSpan.Zero &&
                     options.ReasoningFreshnessLimit > TimeSpan.Zero,
                 "Runtime scheduling intervals must be positive.")
+            .ValidateOnStart();
+        services.AddOptions<SessionRuntimeUiOptions>()
+            .Bind(configuration.GetSection("GoalKeeper:SessionUi"))
+            .Validate(
+                static options =>
+                    options.CameraDeviceIndex >= 0 &&
+                    options.CameraWarmupFrameCount >= 0 &&
+                    options.CameraJpegQuality is >= 1 and <= 100 &&
+                    options.CaptureCadence > TimeSpan.Zero &&
+                    options.ObservationFreshnessLimit > TimeSpan.Zero &&
+                    options.TechnicalGracePeriod >= TimeSpan.Zero,
+                "Session UI camera and monitoring values are invalid.")
             .ValidateOnStart();
 
         services.TryAddSingleton<IClock, SystemClock>();
@@ -78,6 +91,7 @@ public static class RuntimeServiceCollectionExtensions
                 .Attach(controller);
             return controller;
         });
+        services.AddSingleton<ISessionRuntimePresentation, SessionRuntimePresentation>();
 
         services.AddSingleton<SessionRuntimeWorkerRegistry>();
         services.AddSingleton<ISessionRuntimeWorkerRegistry>(
