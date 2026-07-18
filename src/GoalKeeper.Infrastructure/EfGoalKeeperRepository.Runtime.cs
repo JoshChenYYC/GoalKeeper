@@ -415,25 +415,111 @@ public sealed partial class EfGoalKeeperRepository
         RecoveryTurnWrite turn,
         CancellationToken cancellationToken = default)
     {
-        if (turn.Id == Guid.Empty || turn.SessionId == Guid.Empty ||
-            turn.InterventionId == Guid.Empty || turn.TurnNumber <= 0 ||
-            string.IsNullOrWhiteSpace(turn.Outcome))
+        ValidateRecoveryTurn(turn);
+
+        await using var db = await factory.CreateDbContextAsync(cancellationToken);
+        db.RecoveryTurns.Add(ToEntity(turn));
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<RecoveryTurnView>> GetRecoveryTurnsAsync(
+        Guid sessionId,
+        Guid interventionId,
+        CancellationToken cancellationToken = default)
+    {
+        if (sessionId == Guid.Empty || interventionId == Guid.Empty)
         {
-            throw new DomainRuleViolationException("The Recovery turn is invalid.");
+            throw new DomainRuleViolationException(
+                "Recovery turn history requires a Focus Session and Intervention.");
         }
 
         await using var db = await factory.CreateDbContextAsync(cancellationToken);
-        db.RecoveryTurns.Add(new RecoveryTurnEntity
+        return await db.RecoveryTurns.AsNoTracking()
+            .Where(x => x.SessionId == sessionId && x.InterventionId == interventionId)
+            .OrderBy(x => x.TurnNumber)
+            .Select(x => new RecoveryTurnView(
+                x.Id,
+                x.SessionId,
+                x.InterventionId,
+                x.TurnNumber,
+                x.Outcome,
+                x.Transcript,
+                x.OccurredAtUtc))
+            .ToArrayAsync(cancellationToken);
+    }
+
+    public async Task<RecoveryCommitResult> CommitRecoveryTurnAsync(
+        RecoveryCommitRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateRecoveryCommit(request);
+        await using var db = await factory.CreateDbContextAsync(cancellationToken);
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var session = await db.FocusSessions.SingleOrDefaultAsync(
+            x => x.Id == request.ProposedRuntime.Id,
+            cancellationToken) ?? throw new KeyNotFoundException("Focus Session not found.");
+        if (session.Version != request.ExpectedSessionVersion)
         {
-            Id = turn.Id,
-            SessionId = turn.SessionId,
-            InterventionId = turn.InterventionId,
-            TurnNumber = turn.TurnNumber,
-            Outcome = turn.Outcome.Trim(),
-            Transcript = string.IsNullOrWhiteSpace(turn.Transcript) ? null : turn.Transcript.Trim(),
-            OccurredAtUtc = turn.OccurredAtUtc
-        });
-        await db.SaveChangesAsync(cancellationToken);
+            await transaction.RollbackAsync(cancellationToken);
+            return new(false, "stale_session_version", session.Version);
+        }
+
+        var interventionExists = await db.Interventions.AnyAsync(
+            x => x.Id == request.Turn.InterventionId &&
+                 x.SessionId == request.Turn.SessionId,
+            cancellationToken);
+        if (!interventionExists)
+        {
+            throw new DomainRuleViolationException(
+                "The Recovery turn Intervention does not belong to the Focus Session.");
+        }
+
+        var nextTurnNumber = (await db.RecoveryTurns
+            .Where(x => x.InterventionId == request.Turn.InterventionId)
+            .Select(x => (int?)x.TurnNumber)
+            .MaxAsync(cancellationToken) ?? 0) + 1;
+        if (request.Turn.TurnNumber != nextTurnNumber)
+        {
+            throw new DomainRuleViolationException(
+                "The Recovery turn must be the next persisted turn.");
+        }
+
+        db.Entry(session).Property(x => x.Version).OriginalValue =
+            request.ExpectedSessionVersion;
+        ApplyRuntime(session, request.ProposedRuntime);
+        db.RecoveryTurns.Add(ToEntity(request.Turn));
+        AddAudits(
+            db,
+            session.Id,
+            request.ProposedRuntime.Version,
+            request.AuditEvents);
+        await SynchronizeRuntimeRecordsAsync(
+            db,
+            request.ProposedRuntime,
+            null,
+            cancellationToken);
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return new(true, null, request.ProposedRuntime.Version);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return new(false, "stale_session_version",
+                await ReadCurrentSessionVersionAsync(
+                    request.ProposedRuntime.Id,
+                    cancellationToken));
+        }
+        catch (DbUpdateException)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return new(false, "storage_conflict",
+                await ReadCurrentSessionVersionAsync(
+                    request.ProposedRuntime.Id,
+                    cancellationToken));
+        }
     }
 
     public async Task<ReasoningCommitResult> AppendRejectedReasoningEvaluationAsync(
@@ -747,6 +833,56 @@ public sealed partial class EfGoalKeeperRepository
             DisputedTicks = value.DisputedDuration.Ticks,
             Status = Required(value.Status, "Intervention status")
         };
+    }
+
+    private static RecoveryTurnEntity ToEntity(RecoveryTurnWrite value) =>
+        new()
+        {
+            Id = value.Id,
+            SessionId = value.SessionId,
+            InterventionId = value.InterventionId,
+            TurnNumber = value.TurnNumber,
+            Outcome = value.Outcome.Trim(),
+            Transcript = string.IsNullOrWhiteSpace(value.Transcript)
+                ? null
+                : value.Transcript.Trim(),
+            OccurredAtUtc = value.OccurredAtUtc
+        };
+
+    private static void ValidateRecoveryCommit(RecoveryCommitRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ValidateMutation(
+            request.ProposedRuntime.Id,
+            request.ExpectedSessionVersion,
+            request.ProposedRuntime);
+        ValidateRecoveryTurn(request.Turn);
+        if (request.Turn.SessionId != request.ProposedRuntime.Id)
+        {
+            throw new DomainRuleViolationException(
+                "The Recovery turn belongs to another Focus Session.");
+        }
+    }
+
+    private static void ValidateRecoveryTurn(RecoveryTurnWrite turn)
+    {
+        if (turn.Id == Guid.Empty || turn.SessionId == Guid.Empty ||
+            turn.InterventionId == Guid.Empty || turn.TurnNumber <= 0 ||
+            string.IsNullOrWhiteSpace(turn.Outcome))
+        {
+            throw new DomainRuleViolationException("The Recovery turn is invalid.");
+        }
+    }
+
+    private async Task<long> ReadCurrentSessionVersionAsync(
+        Guid sessionId,
+        CancellationToken cancellationToken)
+    {
+        await using var currentDb = await factory.CreateDbContextAsync(cancellationToken);
+        return await currentDb.FocusSessions
+            .Where(x => x.Id == sessionId)
+            .Select(x => x.Version)
+            .SingleAsync(cancellationToken);
     }
 
     private static void ValidateReasoningCommit(ReasoningCommitRequest request)

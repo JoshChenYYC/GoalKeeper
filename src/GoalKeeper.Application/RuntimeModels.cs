@@ -152,3 +152,23 @@ public sealed record RecoveryTurnWrite(
     string Outcome,
     string? Transcript,
     DateTimeOffset OccurredAtUtc);
+
+public sealed record RecoveryTurnView(
+    Guid Id,
+    Guid SessionId,
+    Guid InterventionId,
+    int TurnNumber,
+    string Outcome,
+    string? Transcript,
+    DateTimeOffset OccurredAtUtc);
+
+public sealed record RecoveryCommitRequest(
+    long ExpectedSessionVersion,
+    FocusSessionRuntimeSnapshot ProposedRuntime,
+    RecoveryTurnWrite Turn,
+    IReadOnlyList<RuntimeAuditWrite> AuditEvents);
+
+public sealed record RecoveryCommitResult(
+    bool Applied,
+    string? RejectionReason,
+    long CurrentSessionVersion);

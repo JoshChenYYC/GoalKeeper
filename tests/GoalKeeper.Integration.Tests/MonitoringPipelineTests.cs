@@ -270,6 +270,61 @@ public sealed class MonitoringPipelineTests
     }
 
     [Fact]
+    public async Task Cancellation_stops_in_flight_perception_before_releasing_camera()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var clock = new MutableClock();
+        var camera = new RecordingCamera(clock);
+        var perception = new CancellationBlockingPerception();
+        var pipeline = CreatePipeline(
+            camera,
+            perception,
+            new RecordingRepository(),
+            new RecordingArtifactStore(),
+            new ManualDelay(clock),
+            clock);
+
+        var run = pipeline.RunAsync(new SessionState(), Options(), cancellation.Token);
+        await perception.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+
+        await perception.Exited.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(perception.CancellationObserved);
+        Assert.Equal(0, perception.ActiveCalls);
+        Assert.Equal(1, camera.ReleaseCount);
+    }
+
+    [Fact]
+    public async Task Cancellation_stops_in_flight_observation_publication_before_releasing_camera()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var clock = new MutableClock();
+        var camera = new RecordingCamera(clock);
+        var observations = new CancellationBlockingObservationSink();
+        var pipeline = CreatePipeline(
+            camera,
+            new ReturningPerception(_ => Success()),
+            new RecordingRepository(),
+            new RecordingArtifactStore(),
+            new ManualDelay(clock),
+            clock,
+            observations);
+
+        var run = pipeline.RunAsync(new SessionState(), Options(), cancellation.Token);
+        await observations.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+
+        await observations.Exited.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(observations.CancellationObserved);
+        Assert.Equal(0, observations.ActiveCalls);
+        Assert.Equal(1, camera.ReleaseCount);
+    }
+
+    [Fact]
     public async Task Session_artifact_store_retains_controller_named_jpeg_and_deletes_only_owned_file()
     {
         var root = Path.Combine(Path.GetTempPath(), $"goalkeeper-gk007-{Guid.NewGuid():N}");
@@ -313,7 +368,7 @@ public sealed class MonitoringPipelineTests
         ISnapshotArtifactStore artifacts,
         IMonitoringDelay delay,
         IClock clock,
-        RecordingObservationSink? observations = null,
+        IMonitoringObservationSink? observations = null,
         RecordingHealthSink? healthSink = null) =>
         new(
             new SingleCameraFactory(camera),
@@ -611,6 +666,43 @@ public sealed class MonitoringPipelineTests
         }
     }
 
+    private sealed class CancellationBlockingPerception : IPerceptionPort
+    {
+        public TaskCompletionSource Entered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource Exited { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int ActiveCalls { get; private set; }
+
+        public bool CancellationObserved { get; private set; }
+
+        public async Task<PerceptionResult> ObserveAsync(
+            PerceptionRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            _ = request;
+            ActiveCalls++;
+            Entered.SetResult();
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                throw new InvalidOperationException("The scripted Perception call should be cancelled.");
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                CancellationObserved = true;
+                throw;
+            }
+            finally
+            {
+                ActiveCalls--;
+                Exited.SetResult();
+            }
+        }
+    }
+
     private sealed class RecordingArtifactStore : ISnapshotArtifactStore
     {
         public List<(Guid SessionId, int Sequence, Guid FrameId)> Retained { get; } = [];
@@ -646,6 +738,42 @@ public sealed class MonitoringPipelineTests
         {
             Observations.Add(observation);
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class CancellationBlockingObservationSink : IMonitoringObservationSink
+    {
+        public TaskCompletionSource Entered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource Exited { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int ActiveCalls { get; private set; }
+
+        public bool CancellationObserved { get; private set; }
+
+        public async Task PublishAsync(
+            ReasoningEligibleObservation observation,
+            CancellationToken cancellationToken = default)
+        {
+            _ = observation;
+            ActiveCalls++;
+            Entered.SetResult();
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                CancellationObserved = true;
+                throw;
+            }
+            finally
+            {
+                ActiveCalls--;
+                Exited.SetResult();
+            }
         }
     }
 
@@ -873,6 +1001,17 @@ public sealed class MonitoringPipelineTests
 
         public Task AddRecoveryTurnAsync(
             RecoveryTurnWrite turn,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<RecoveryTurnView>> GetRecoveryTurnsAsync(
+            Guid sessionId,
+            Guid interventionId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<RecoveryCommitResult> CommitRecoveryTurnAsync(
+            RecoveryCommitRequest request,
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 

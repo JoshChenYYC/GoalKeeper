@@ -211,4 +211,28 @@ public sealed record ReasoningOrchestrationResult(
     ReasoningDecision Decision,
     string? RejectionReason,
     EvidenceEpisode? EvidenceEpisode,
-    ReasoningRequest? Request);
+    ReasoningRequest? Request,
+    ReasoningFailureCategory? FailureCategory = null);
+
+public sealed record ReasoningAdmissionContext(
+    ReasoningEvaluation Evaluation,
+    ReasoningRequest Request);
+
+public sealed class ReasoningAdmissionPlan
+{
+    public ReasoningAdmissionPlan(
+        FocusSessionRuntimeSnapshot runtime,
+        IEnumerable<RuntimeAuditWrite>? auditEvents = null)
+    {
+        Runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
+        AuditEvents = Array.AsReadOnly((auditEvents ?? []).ToArray());
+    }
+
+    public FocusSessionRuntimeSnapshot Runtime { get; }
+
+    public IReadOnlyList<RuntimeAuditWrite> AuditEvents { get; }
+}
+
+public delegate Task<ReasoningAdmissionPlan> ReasoningAdmissionHandler(
+    ReasoningAdmissionContext context,
+    CancellationToken cancellationToken);

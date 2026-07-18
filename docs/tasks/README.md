@@ -24,7 +24,7 @@ This directory contains the remaining GoalKeeper roadmap as independently assign
 | [GK-008](./GK-008-durable-reasoning.md) | Durable Reasoning core and deterministic fake | Done | GK-003, GK-005 | Bounded evidence-linked decisions |
 | [GK-009](./GK-009-hosted-reasoning.md) | Hosted Reasoning adapter | Blocked | GK-002, GK-008 | Versioned provider integration |
 | [GK-010](./GK-010-scripted-recovery.md) | Scripted Recovery boundary | Done | GK-003 | Deterministic Recovery proposals |
-| [GK-011](./GK-011-runtime-controller.md) | End-to-end session runtime controller | Ready | GK-007, GK-008, GK-010 | Complete fake-driven lifecycle |
+| [GK-011](./GK-011-runtime-controller.md) | End-to-end session runtime controller | In progress | GK-007, GK-008, GK-010 | Complete fake-driven lifecycle |
 | [GK-012](./GK-012-voice-recovery.md) | Natural voice Recovery Check-in | Blocked | GK-002, GK-010, GK-011 | Bounded voice interaction |
 | [GK-013](./GK-013-live-session-ui.md) | Live Focus Session UI | Blocked | GK-011 | Preflight and live controls |
 | [GK-014](./GK-014-review-history-ui.md) | Review, history, storage, and deletion UI | Blocked | GK-003, GK-011 | Complete post-session workflow |

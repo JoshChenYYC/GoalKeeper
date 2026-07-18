@@ -140,6 +140,124 @@ public sealed class RuntimePersistenceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Recovery_commit_saves_runtime_and_ordered_turn_atomically()
+    {
+        var prepared = await PrepareSessionAsync("Recovery commit");
+        await _repository.StartSessionAsync(
+            prepared.Setup.Id,
+            prepared.Setup.Version,
+            prepared.Session.CreateSnapshot());
+        var interventionId = await PersistInterventionAsync(prepared);
+        var expectedVersion = prepared.Session.Version;
+        prepared.Session.Recommit();
+        var turn = RecoveryTurn(
+            prepared.Session.Id,
+            interventionId,
+            1,
+            "recommit");
+
+        var result = await _repository.CommitRecoveryTurnAsync(
+            new(
+                expectedVersion,
+                prepared.Session.CreateSnapshot(),
+                turn,
+                [
+                    new(
+                        _clock.UtcNow,
+                        "recovery_recommit",
+                        FocusSessionState.RecoveryCheckIn,
+                        FocusSessionState.RecoveryWindow,
+                        "{}")
+                ]));
+
+        Assert.True(result.Applied);
+        Assert.Equal(prepared.Session.Version, result.CurrentSessionVersion);
+        var stored = await _repository.GetSessionAsync(prepared.Session.Id);
+        Assert.Equal(FocusSessionState.RecoveryWindow, stored!.State);
+        Assert.Equal(prepared.Session.Version, stored.Version);
+        var turns = await _repository.GetRecoveryTurnsAsync(
+            prepared.Session.Id,
+            interventionId);
+        var savedTurn = Assert.Single(turns);
+        Assert.Equal(1, savedTurn.TurnNumber);
+        Assert.Equal(turn.Outcome, savedTurn.Outcome);
+        await using var db = await _factory.CreateDbContextAsync();
+        Assert.Equal(
+            "Resolved",
+            (await db.Interventions.SingleAsync(x => x.Id == interventionId)).Status);
+        Assert.Single(await db.AuditEvents.Where(
+            x => x.SessionId == prepared.Session.Id &&
+                 x.Event == "recovery_recommit").ToListAsync());
+    }
+
+    [Fact]
+    public async Task Stale_recovery_commit_writes_neither_turn_nor_runtime()
+    {
+        var prepared = await PrepareSessionAsync("Stale Recovery commit");
+        await _repository.StartSessionAsync(
+            prepared.Setup.Id,
+            prepared.Setup.Version,
+            prepared.Session.CreateSnapshot());
+        var interventionId = await PersistInterventionAsync(prepared);
+        var recoveryCheckIn = prepared.Session.CreateSnapshot();
+        var staleGoal = Goal.Rehydrate(
+            prepared.Goal.Id,
+            prepared.Goal.Title,
+            prepared.Goal.Description,
+            GoalStatus.Active,
+            prepared.Goal.CreatedAtUtc,
+            null);
+        var staleSession = FocusSession.Rehydrate(
+            staleGoal,
+            prepared.Contract,
+            recoveryCheckIn,
+            _clock);
+        staleSession.ReportNoResponse();
+        prepared.Session.ApplyRemainderDeviationOverride(
+            "Goal-consistent for this Focus Session.");
+        var authoritative = prepared.Session.CreateSnapshot();
+        await _repository.UpdateSessionAsync(
+            prepared.Session.Id,
+            new(
+                recoveryCheckIn.Version,
+                authoritative,
+                []));
+
+        var result = await _repository.CommitRecoveryTurnAsync(
+            new(
+                recoveryCheckIn.Version,
+                staleSession.CreateSnapshot(),
+                RecoveryTurn(
+                    prepared.Session.Id,
+                    interventionId,
+                    1,
+                    "no_response"),
+                [
+                    new(
+                        _clock.UtcNow,
+                        "recovery_no_response",
+                        FocusSessionState.RecoveryCheckIn,
+                        FocusSessionState.AwaitingResponse,
+                        "{}")
+                ]));
+
+        Assert.False(result.Applied);
+        Assert.Equal("stale_session_version", result.RejectionReason);
+        Assert.Equal(authoritative.Version, result.CurrentSessionVersion);
+        var after = await _repository.GetSessionAsync(prepared.Session.Id);
+        Assert.Equal(
+            JsonSerializer.Serialize(authoritative),
+            JsonSerializer.Serialize(after!.Runtime));
+        Assert.Empty(await _repository.GetRecoveryTurnsAsync(
+            prepared.Session.Id,
+            interventionId));
+        await using var db = await _factory.CreateDbContextAsync();
+        Assert.False(await db.AuditEvents.AnyAsync(
+            x => x.SessionId == prepared.Session.Id &&
+                 x.Event == "recovery_no_response"));
+    }
+
+    [Fact]
     public async Task Storage_conflict_rolls_back_episode_intervention_and_runtime()
     {
         var first = await PrepareSessionAsync("First");
@@ -492,6 +610,89 @@ public sealed class RuntimePersistenceTests : IAsyncLifetime
             deviation,
             setup);
     }
+
+    private async Task<Guid> PersistInterventionAsync(PreparedSession prepared)
+    {
+        var initial = prepared.Session.CreateSnapshot();
+        var snapshot = await _repository.AddSnapshotAsync(new(
+            Guid.NewGuid(),
+            prepared.Session.Id,
+            0,
+            _clock.UtcNow,
+            _clock.MonotonicNow,
+            "recovery-evidence.jpg",
+            1,
+            SnapshotProcessingStatus.Captured,
+            initial.Version));
+        var observation = await _repository.AddObservationAsync(new(
+            Guid.NewGuid(),
+            prepared.Session.Id,
+            snapshot.Id,
+            initial.Version,
+            _clock.UtcNow,
+            1,
+            "{}"));
+        var reference = ObservationReference.Create(
+            observation.Id.ToString(),
+            prepared.Session.Id,
+            observation.CapturedAtMonotonic);
+        var episode = EvidenceEpisode.Create(
+            prepared.Session.Id,
+            DeviationReference.Listed(prepared.Deviation.Id),
+            [reference]);
+        var evaluation = ReasoningEvaluation.ProposeIntervention(
+            prepared.Session.Id,
+            initial.Version,
+            episode,
+            "Visible evidence may conflict.",
+            _clock);
+        prepared.Session.AdmitIntervention(evaluation);
+        var intervention = prepared.Session.ActiveIntervention!;
+        var result = await _repository.CommitReasoningEvaluationAsync(new(
+            initial.Version,
+            prepared.Session.CreateSnapshot(),
+            new(
+                evaluation.Id,
+                prepared.Session.Id,
+                initial.Version,
+                ReasoningDecision.BeginRecoveryCheckIn,
+                evaluation.EvaluatedAtUtc,
+                1,
+                "{}"),
+            new(
+                episode.Id,
+                prepared.Session.Id,
+                prepared.Deviation.Id,
+                null,
+                evaluation.EvaluatedAtUtc,
+                "{}",
+                [new(observation.Id, 0)]),
+            new(
+                intervention.Id,
+                prepared.Session.Id,
+                evaluation.Id,
+                episode.Id,
+                intervention.AdmittedAtUtc,
+                intervention.DisputedDuration,
+                "Active"),
+            []));
+        Assert.True(result.Applied);
+        return intervention.Id;
+    }
+
+    private RecoveryTurnWrite RecoveryTurn(
+        Guid sessionId,
+        Guid interventionId,
+        int turnNumber,
+        string outcome) =>
+        new(
+            Guid.NewGuid(),
+            sessionId,
+            interventionId,
+            turnNumber,
+            $$"""{"structured_outcome":"{{outcome}}"}""",
+            outcome,
+            _clock.UtcNow);
 
     private void MoveTo(
         FocusSessionState state,

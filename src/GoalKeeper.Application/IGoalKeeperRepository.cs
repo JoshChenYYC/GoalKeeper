@@ -101,6 +101,15 @@ public interface IGoalKeeperRepository
         RecoveryTurnWrite turn,
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<RecoveryTurnView>> GetRecoveryTurnsAsync(
+        Guid sessionId,
+        Guid interventionId,
+        CancellationToken cancellationToken = default);
+
+    Task<RecoveryCommitResult> CommitRecoveryTurnAsync(
+        RecoveryCommitRequest request,
+        CancellationToken cancellationToken = default);
+
     Task<StorageUsageView> GetStorageUsageAsync(Guid? sessionId = null,
         CancellationToken cancellationToken = default);
 

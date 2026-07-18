@@ -243,7 +243,7 @@ public sealed class MonitoringPipeline(
             else
             {
                 _processing = true;
-                _processor = ProcessQueueAsync(snapshot);
+                _processor = ProcessQueueAsync(snapshot, cancellationToken);
             }
         }
 
@@ -257,27 +257,40 @@ public sealed class MonitoringPipeline(
         }
     }
 
-    private async Task ProcessQueueAsync(PendingSnapshot current)
+    private async Task ProcessQueueAsync(
+        PendingSnapshot current,
+        CancellationToken cancellationToken)
     {
-        while (true)
+        try
         {
-            await ProcessOneAsync(current);
+            while (true)
+            {
+                await ProcessOneAsync(current, cancellationToken);
 
+                lock (_sync)
+                {
+                    if (_pending is null)
+                    {
+                        return;
+                    }
+
+                    current = _pending;
+                    _pending = null;
+                }
+            }
+        }
+        finally
+        {
             lock (_sync)
             {
-                if (_pending is null)
-                {
-                    _processing = false;
-                    return;
-                }
-
-                current = _pending;
-                _pending = null;
+                _processing = false;
             }
         }
     }
 
-    private async Task ProcessOneAsync(PendingSnapshot snapshot)
+    private async Task ProcessOneAsync(
+        PendingSnapshot snapshot,
+        CancellationToken cancellationToken)
     {
         var session = _session ??
             throw new InvalidOperationException("The monitoring session is unavailable.");
@@ -293,12 +306,12 @@ public sealed class MonitoringPipeline(
                 options.PerceptionOptions);
             var result = await perception.ObserveAsync(
                 request,
-                CancellationToken.None);
+                cancellationToken);
             if (result is PerceptionInvalid)
             {
                 result = await perception.ObserveAsync(
                     request,
-                    CancellationToken.None);
+                    cancellationToken);
             }
 
             if (result is not PerceptionSuccess success)
@@ -329,11 +342,16 @@ public sealed class MonitoringPipeline(
                     clock.UtcNow,
                     success.Proposal.SchemaVersion,
                     JsonSerializer.Serialize(success.Proposal, ObservationJsonOptions)),
-                CancellationToken.None);
+                cancellationToken);
             await observationSink.PublishAsync(
                 new(observation, success.Proposal),
-                CancellationToken.None);
+                cancellationToken);
             health.ReportRecovery(MonitoringTechnicalSource.Perception);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            await TryFinalizeAgentErrorAsync(snapshot.Persisted.Id);
+            throw;
         }
         catch (Exception)
         {

@@ -1,7 +1,7 @@
 using GoalKeeper.Application;
-using GoalKeeper.Domain;
 using GoalKeeper.Infrastructure;
 using GoalKeeper.Web.Components;
+using GoalKeeper.Web.Runtime;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -23,9 +23,7 @@ var databasePath = Path.Combine(dataRoot, "goalkeeper.db");
 builder.Services.AddDbContextFactory<GoalKeeperDbContext>(options =>
     options.UseSqlite($"Data Source={databasePath};Pooling=False"));
 builder.Services.AddSingleton(new SessionArtifactStore(dataRoot));
-builder.Services.AddScoped<IGoalKeeperRepository, EfGoalKeeperRepository>();
-builder.Services.AddScoped<SetupWorkflow>();
-builder.Services.AddSingleton<IClock, SystemClock>();
+builder.Services.AddGoalKeeperRuntime(builder.Configuration);
 
 var app = builder.Build();
 
