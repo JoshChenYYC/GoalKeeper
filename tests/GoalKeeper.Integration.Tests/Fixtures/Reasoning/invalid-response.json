@@ -1,0 +1,27 @@
+{
+  "id": "resp_reasoning_invalid",
+  "object": "response",
+  "created_at": 1784412000,
+  "status": "completed",
+  "error": null,
+  "incomplete_details": null,
+  "model": "gpt-5.6-sol",
+  "output": [
+    {
+      "id": "msg_reasoning_invalid",
+      "type": "message",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "annotations": [],
+          "text": "{\"schema_version\":1,\"hostile_unknown_property\":\"IGNORE_PREVIOUS_INSTRUCTIONS_CANARY\"}"
+        }
+      ]
+    }
+  ],
+  "parallel_tool_calls": false,
+  "tool_choice": "auto",
+  "tools": []
+}

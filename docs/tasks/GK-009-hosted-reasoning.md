@@ -1,6 +1,8 @@
 # GK-009 — Hosted Reasoning adapter
 
-**Status:** Blocked
+**Status:** In progress
+**Owner:** Codex `/root`
+**Branch:** `task/GK-009-hosted-reasoning`
 **Depends on:** GK-002, GK-008
 **Suggested branch:** `task/GK-009-hosted-reasoning`
 
