@@ -6,6 +6,9 @@ using GoalKeeper.Application.Recovery;
 using GoalKeeper.Application.Runtime;
 using GoalKeeper.Domain;
 using GoalKeeper.Infrastructure;
+using GoalKeeper.Infrastructure.Perception;
+using GoalKeeper.Infrastructure.Reasoning;
+using GoalKeeper.Infrastructure.Recovery;
 using GoalKeeper.Web.Operations;
 using GoalKeeper.Web.Presentation;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -28,6 +31,8 @@ public static class RuntimeServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
+
+        AddConfiguredProviders(services, configuration);
 
         services.AddOptions<SessionRuntimeSchedulingOptions>()
             .Bind(configuration.GetSection("GoalKeeper:Runtime"))
@@ -104,6 +109,26 @@ public static class RuntimeServiceCollectionExtensions
         services.AddHostedService<SessionRuntimeHostedService>();
 
         return services;
+    }
+
+    private static void AddConfiguredProviders(
+        IServiceCollection services,
+        IConfiguration configuration)
+    {
+        var configuredMode = configuration[
+            $"{GoalKeeperOperationalOptions.SectionName}:Providers:Mode"];
+        if (!Enum.TryParse<GoalKeeperProviderMode>(
+                configuredMode,
+                ignoreCase: true,
+                out var mode) ||
+            mode != GoalKeeperProviderMode.Hosted)
+        {
+            return;
+        }
+
+        services.AddOpenAiPerception(configuration);
+        services.AddOpenAiReasoning(configuration);
+        services.AddOpenAiVoiceRecovery(configuration);
     }
 }
 

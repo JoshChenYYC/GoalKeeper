@@ -28,25 +28,56 @@ Tests that need real hardware or a hosted provider must use the `hardware` or
 They are intentionally opt-in and require their own environment, credentials,
 and runtime dependencies.
 
-## .NET local application
+## .NET local prototype
 
-Phases 1 and 2 are implemented in .NET 10. The solution contains a deterministic
-domain kernel, an application setup workflow, EF Core SQLite migrations, and an
-interactive-server Blazor UI. Application data defaults to
-`%LocalAppData%\GoalKeeper`; override it with the `GoalKeeper__DataRoot`
-environment variable.
+The complete local prototype runs as a .NET 10 interactive-server Blazor app.
+It supports Goal and Deviation Profile setup, immutable Session Contracts,
+camera preflight, periodic snapshot monitoring, hosted Perception and Reasoning,
+bounded Recovery Check-ins, session completion, optional review, history, and
+confirmed local deletion.
 
-Start the local setup UI:
+The safe default is `Disabled` provider mode. It starts without a credential,
+never calls a hosted model, and turns missing provider behavior into explicit
+technical/indeterminate results. To use the selected hosted OpenAI stack, save
+the credential with .NET Secret Manager; do not add it to a tracked file:
 
 ```powershell
-dotnet run --project src/GoalKeeper.Web
+dotnet user-secrets set "GoalKeeper:Providers:OpenAI:ApiKey" "YOUR_KEY" `
+  --project .\src\GoalKeeper.Web
+$env:GoalKeeper__Providers__Mode = "Hosted"
+dotnet run --project .\src\GoalKeeper.Web
 ```
 
-The workflow supports Goal creation and editing, Deviation Profile setup,
-latest-contract prefill, immutable contract confirmation, and persisted ready
-Session Setups. Camera preflight and monitoring remain Phase 3 work. The Python
-implementation is intentionally retained as the behavioral reference during
-that migration.
+Open `http://127.0.0.1:5072`. Create a Focus profile before preparing the first
+session. Camera access begins only when Capture is selected. In Hosted mode,
+the microphone is available only during a Recovery Check-in and begins only
+when Respond by voice is selected. Raw voice audio is discarded after the
+bounded turn.
+
+Application data defaults to `%LocalAppData%\GoalKeeper`; override it with
+`GoalKeeper__DataRoot`. The SQLite database and owned session artifacts remain
+local. Recovery transcripts are stored in that local database; raw voice audio
+is discarded after transcription. Selected snapshots and bounded Recovery
+audio/transcript content are sent to the configured provider in Hosted mode. See
+`docs/provider-configuration.md`, `docs/operational-configuration.md`, and the
+records under `docs/validation/` for the exact models and evidence.
+
+Use the in-app confirmed deletion controls for individual sessions and Goals.
+For a complete local reset, stop GoalKeeper and remove its configured data-root
+directory. Never delete a broader `%LocalAppData%` directory.
+
+Known prototype limitations:
+
+* Native camera and microphone adapters currently target Windows.
+* The app is single-user, loopback-only, and supports one active session.
+* Snapshot/model quality varies with framing, lighting, occlusion, and provider
+  behavior; technical failures never count as Deviation evidence.
+* Crash/restart recovery, automatic retention, cross-session personalization,
+  remote hosting, and production deployment are out of scope.
+* Hosted provider abuse-monitoring retention may last up to 30 days.
+
+The Python implementation remains reference-only and is not the application
+entry point.
 
 ## Current recording prototype
 

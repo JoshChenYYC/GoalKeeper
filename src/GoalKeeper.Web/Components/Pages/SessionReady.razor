@@ -30,14 +30,14 @@ else
             <h2 id="contract-title">@_setup.Contract.GoalTitle</h2>
         </div>
         <dl class="contract-facts">
-            <div><dt>Focus target</dt><dd>@_setup.Contract.TargetFocusDuration.TotalMinutes:g min</dd></div>
+            <div><dt>Focus target</dt><dd>@($"{_setup.Contract.TargetFocusDuration.TotalMinutes:g} min")</dd></div>
             <div><dt>Scheduled breaks</dt><dd>@_setup.Contract.ScheduledBreaks.Count</dd></div>
             <div><dt>Reasoning</dt><dd>@_setup.Contract.ReasoningMode · @_setup.Contract.Sensitivity</dd></div>
             <div><dt>Profile</dt><dd>@_setup.Contract.DeviationProfileName</dd></div>
         </dl>
         <div class="privacy-note">
             <span aria-hidden="true">●</span>
-            <p><strong>Camera use stays visible.</strong> Preflight captures a still image each time you choose Capture. After you start, the camera checks the live session. Recovery is text-only and the microphone remains off in this version.</p>
+            <p><strong>Camera and microphone use stay visible.</strong> Preflight captures a still image each time you choose Capture. After you start, the camera checks the live session. If hosted providers are enabled, the microphone activates only when you choose a voice response during Recovery and releases immediately afterward.</p>
         </div>
         <div class="actions">
             <a class="button" href="@($"/sessions/{SetupId}/preflight")">Begin camera preflight</a>

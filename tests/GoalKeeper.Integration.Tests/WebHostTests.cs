@@ -178,4 +178,43 @@ public sealed class WebHostTests
             }
         }
     }
+
+    [Fact]
+    public async Task Session_setup_without_a_profile_renders_an_actionable_state()
+    {
+        var dataRoot = Path.Combine(
+            Path.GetTempPath(),
+            $"goalkeeper-setup-without-profile-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dataRoot);
+        try
+        {
+            using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+            {
+                builder.UseSetting("GoalKeeper:DataRoot", dataRoot);
+                builder.ConfigureLogging(logging => logging.ClearProviders());
+            });
+            using var client = factory.CreateClient();
+            await using var scope = factory.Services.CreateAsyncScope();
+            var workflow = scope.ServiceProvider.GetRequiredService<SetupWorkflow>();
+            var goal = await workflow.CreateGoalAsync("Profile prerequisite", null);
+
+            var response = await client.GetAsync($"/sessions/setup/{goal.Id}");
+            var html = await response.Content.ReadAsStringAsync();
+
+            Assert.True(response.IsSuccessStatusCode, html);
+            Assert.Contains("Session setup isn’t ready.", html);
+            Assert.Contains(
+                "Create a Deviation Profile before preparing a session.",
+                html);
+            Assert.Contains("Create Focus profile", html);
+            Assert.Contains("Return to goals", html);
+        }
+        finally
+        {
+            if (Directory.Exists(dataRoot))
+            {
+                Directory.Delete(dataRoot, recursive: true);
+            }
+        }
+    }
 }

@@ -15,7 +15,7 @@ This directory contains the remaining GoalKeeper roadmap as independently assign
 | ID | Task | Current status | Depends on | Primary output |
 |---|---|---|---|---|
 | [GK-001](./GK-001-quality-gate.md) | Reproducible quality gate and CI | Done | — | Offline-safe Python/.NET CI |
-| [GK-002](./GK-002-provider-decisions.md) | Provider, model, privacy, and live-smoke decisions | In progress | — | Accepted ADRs and smoke evidence |
+| [GK-002](./GK-002-provider-decisions.md) | Provider, model, privacy, and live-smoke decisions | Done | — | Accepted ADRs and smoke evidence |
 | [GK-003](./GK-003-runtime-persistence.md) | Runtime state and persistence foundation | Done | — | Recoverable atomic runtime contract |
 | [GK-004](./GK-004-camera-preflight.md) | .NET camera acquisition and preflight input | Done | — | Provider-neutral camera adapter |
 | [GK-005](./GK-005-perception-contract.md) | Perception schema, validator, port, and fake | Done | — | Provider-neutral Observation contract |
@@ -28,8 +28,8 @@ This directory contains the remaining GoalKeeper roadmap as independently assign
 | [GK-012](./GK-012-voice-recovery.md) | Natural voice Recovery Check-in | Done | GK-002, GK-010, GK-011 | Bounded voice interaction |
 | [GK-013](./GK-013-live-session-ui.md) | Live Focus Session UI | Done | GK-011 | Preflight and live controls |
 | [GK-014](./GK-014-review-history-ui.md) | Review, history, storage, and deletion UI | Done | GK-003, GK-011 | Complete post-session workflow |
-| [GK-015](./GK-015-configuration-log-safety.md) | Configuration, logging, and failure safety | In progress | GK-003, GK-006, GK-009, GK-011, GK-012 | Validated safe operations |
-| [GK-016](./GK-016-acceptance-soak.md) | Acceptance, soak, tuning, and closeout | Blocked | GK-001, GK-002, GK-006, GK-007, GK-009, GK-011–GK-015 | Prototype-readiness evidence |
+| [GK-015](./GK-015-configuration-log-safety.md) | Configuration, logging, and failure safety | Done | GK-003, GK-006, GK-009, GK-011, GK-012 | Validated safe operations |
+| [GK-016](./GK-016-acceptance-soak.md) | Acceptance, soak, tuning, and closeout | In progress | GK-001, GK-002, GK-006, GK-007, GK-009, GK-011–GK-015 | Prototype-readiness evidence |
 
 ## Parallel work lanes
 

@@ -885,36 +885,50 @@ public sealed class SessionRuntimeController(
         await _commands.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var loaded = await LoadCurrentAsync(cancellationToken).ConfigureAwait(false);
-            if (loaded is null)
+            const int maximumAttempts = 3;
+            for (var attempt = 1; attempt <= maximumAttempts; attempt++)
             {
-                return null;
-            }
+                var loaded = await LoadCurrentAsync(cancellationToken).ConfigureAwait(false);
+                if (loaded is null)
+                {
+                    return null;
+                }
 
-            var (view, _, _, session) = loaded.Value;
-            var before = session.CreateSnapshot();
-            command(session);
-            var after = session.CreateSnapshot();
-            if (after.Version == before.Version)
-            {
-                return view;
-            }
+                var (view, _, _, session) = loaded.Value;
+                var before = session.CreateSnapshot();
+                command(session);
+                var after = session.CreateSnapshot();
+                if (after.Version == before.Version)
+                {
+                    return view;
+                }
 
-            var mutation = new RuntimeMutation(
-                before.Version,
-                after,
-                [Audit(eventName, before.State, after.State)])
-            {
-                GoalCompletedAtUtc = completesGoal ? clock.UtcNow : null
-            };
-            persisted = await repository.UpdateSessionAsync(
-                    view.Id,
-                    mutation,
-                    cancellationToken)
-                .ConfigureAwait(false);
-            UpdateState(persisted);
-            terminal = persisted.Runtime.State is
-                FocusSessionState.Fulfilled or FocusSessionState.EndedEarly;
+                var mutation = new RuntimeMutation(
+                    before.Version,
+                    after,
+                    [Audit(eventName, before.State, after.State)])
+                {
+                    GoalCompletedAtUtc = completesGoal ? clock.UtcNow : null
+                };
+                try
+                {
+                    persisted = await repository.UpdateSessionAsync(
+                            view.Id,
+                            mutation,
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    UpdateState(persisted);
+                    terminal = persisted.Runtime.State is
+                        FocusSessionState.Fulfilled or FocusSessionState.EndedEarly;
+                    break;
+                }
+                catch (PersistenceConflictException) when (attempt < maximumAttempts)
+                {
+                    // Provider admission commits outside the command gate so a slow
+                    // result never blocks user controls. Reload and reapply the local
+                    // command when that commit wins the optimistic-concurrency race.
+                }
+            }
         }
         finally
         {

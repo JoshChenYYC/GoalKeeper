@@ -1,6 +1,6 @@
 # GK-002 — Provider, model, privacy, and live-smoke decisions
 
-**Status:** In progress on `task/GK-002-provider-decisions`
+**Status:** Done
 **Depends on:** None
 **Suggested branch:** `task/GK-002-provider-decisions`
 
@@ -44,5 +44,6 @@ Do not commit credentials, provider responses containing room imagery, or adapte
 - Provider/model decision: [ADR 0002](../adr/0002-openai-provider-and-model-stack.md)
 - Safe configuration contract: [provider-configuration.md](../provider-configuration.md)
 - Manual validation record: [GK-002-live-smoke-evidence.md](../validation/GK-002-live-smoke-evidence.md)
-- Remaining human gate: explicit camera/provider consent and a process-scoped
-  OpenAI API credential are required to run both live smoke checks.
+- The final consented running-host camera, Reasoning, and voice exercise is
+  recorded in
+  [GK-016 acceptance and soak evidence](../validation/GK-016-acceptance-soak-evidence.md).

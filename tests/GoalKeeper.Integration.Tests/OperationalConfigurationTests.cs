@@ -22,6 +22,9 @@ public sealed class OperationalConfigurationTests
                 builder.UseSetting(
                     "GoalKeeper:Providers:Mode",
                     "Hosted");
+                builder.UseSetting(
+                    "GoalKeeper:Providers:OpenAI:ApiKey",
+                    string.Empty);
                 builder.ConfigureLogging(logging => logging.ClearProviders());
             });
 
@@ -161,12 +164,13 @@ public sealed class OperationalConfigurationTests
         const string secret = "sk-PRIVATE-KEY-CANARY";
         const string image = "data:image/jpeg;base64,PRIVATE_IMAGE_CANARY";
         const string audio = "RIFF_PRIVATE_AUDIO_CANARY";
+        const string transcript = "I said PRIVATE_TRANSCRIPT_CANARY";
         var sink = new CapturingLogger<GoalKeeperOperationalLogger>();
         var log = new GoalKeeperOperationalLogger(sink);
 
         log.TechnicalBoundaryEvent(
             image,
-            audio,
+            $"{audio} {transcript}",
             Guid.Parse("10000000-0000-0000-0000-000000000001"),
             secret);
 
@@ -174,6 +178,7 @@ public sealed class OperationalConfigurationTests
         Assert.DoesNotContain(secret, message, StringComparison.Ordinal);
         Assert.DoesNotContain(image, message, StringComparison.Ordinal);
         Assert.DoesNotContain(audio, message, StringComparison.Ordinal);
+        Assert.DoesNotContain(transcript, message, StringComparison.Ordinal);
         Assert.Equal(3, Count(message, "redacted"));
     }
 

@@ -1,6 +1,8 @@
 # GK-016 — Acceptance, soak, tuning, and closeout
 
-**Status:** Blocked
+**Status:** In progress
+**Owner:** Codex `/root`
+**Branch:** `task/GK-016-acceptance-soak`
 **Depends on:** GK-001, GK-002, GK-006, GK-007, GK-009, GK-011–GK-015
 **Suggested branch:** `task/GK-016-acceptance-soak`
 
@@ -45,3 +47,7 @@ Do not add deferred product features while closing the prototype.
 - Automatic retention or cross-session personalization
 - Multi-user, remote, or production deployment
 - Formal Intervention-quality research
+
+## Delivery record
+
+- [Acceptance, soak, browser, and consented Hosted evidence](../validation/GK-016-acceptance-soak-evidence.md)

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GoalKeeper.Application;
+using GoalKeeper.Application.Reasoning;
 using GoalKeeper.Domain;
 using GoalKeeper.Infrastructure;
 using Microsoft.Data.Sqlite;
@@ -485,6 +486,55 @@ public sealed class RuntimePersistenceTests : IAsyncLifetime
         Assert.Equal(2, recent.Count);
         Assert.Equal([2d, 3d], recent.Select(x => x.CapturedAtMonotonic.TotalSeconds));
         Assert.All(recent, x => Assert.Equal(prepared.Session.Id, x.SessionId));
+    }
+
+    [Fact]
+    public async Task Accelerated_soak_tracks_snapshot_growth_and_bounds_observation_reads()
+    {
+        const int snapshotCount = 250;
+        const int storedBytesPerSnapshot = 5;
+        var prepared = await PrepareSessionAsync("Persistence soak");
+        await _repository.StartSessionAsync(
+            prepared.Setup.Id,
+            prepared.Setup.Version,
+            prepared.Session.CreateSnapshot());
+
+        for (var sequence = 0; sequence < snapshotCount; sequence++)
+        {
+            var capturedAt = _clock.UtcNow + TimeSpan.FromSeconds(sequence);
+            var snapshot = await _repository.AddSnapshotAsync(new SnapshotWrite(
+                Guid.NewGuid(),
+                prepared.Session.Id,
+                sequence,
+                capturedAt,
+                TimeSpan.FromSeconds(sequence),
+                $"{sequence}.jpg",
+                storedBytesPerSnapshot,
+                SnapshotProcessingStatus.Captured,
+                prepared.Session.Version));
+            await _repository.AddObservationAsync(new ObservationWrite(
+                Guid.NewGuid(),
+                prepared.Session.Id,
+                snapshot.Id,
+                prepared.Session.Version,
+                capturedAt + TimeSpan.FromMilliseconds(1),
+                1,
+                "{}"));
+        }
+
+        var usage = await _repository.GetStorageUsageAsync(prepared.Session.Id);
+        var recent = await _repository.GetRecentObservationsAsync(
+            prepared.Session.Id,
+            ReasoningLimits.RecentObservations);
+
+        Assert.Equal(snapshotCount, usage.SnapshotCount);
+        Assert.Equal(snapshotCount * storedBytesPerSnapshot, usage.SnapshotBytes);
+        Assert.Equal(ReasoningLimits.RecentObservations, recent.Count);
+        Assert.Equal(
+            Enumerable.Range(
+                snapshotCount - ReasoningLimits.RecentObservations,
+                ReasoningLimits.RecentObservations).Select(Convert.ToDouble),
+            recent.Select(observation => observation.CapturedAtMonotonic.TotalSeconds));
     }
 
     [Fact]

@@ -3,6 +3,7 @@ captures/
 .nuget/
 __pycache__/
 .pytest_cache/
+.playwright-cli/
 bin/
 obj/
 .vs/
