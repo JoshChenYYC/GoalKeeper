@@ -131,6 +131,7 @@ public sealed class PersistenceTests : IAsyncLifetime
             db.SessionContracts.Add(contract);
             var session = FocusSessionEntity.CreateForTest(goal.Id, contract.Id, _clock.UtcNow);
             session.State = "EndedEarly";
+            session.ActiveSlot = null;
             session.ArtifactDirectory = _artifacts.Claim(session.Id);
             db.FocusSessions.Add(session);
             await db.SaveChangesAsync();
@@ -155,6 +156,7 @@ public sealed class PersistenceTests : IAsyncLifetime
             db.SessionContracts.Add(contract);
             var session = FocusSessionEntity.CreateForTest(goal.Id, contract.Id, _clock.UtcNow);
             session.State = "Fulfilled";
+            session.ActiveSlot = null;
             session.ArtifactDirectory = unowned;
             db.FocusSessions.Add(session);
             await db.SaveChangesAsync();

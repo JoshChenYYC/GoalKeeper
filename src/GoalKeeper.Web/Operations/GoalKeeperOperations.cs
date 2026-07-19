@@ -263,6 +263,9 @@ public sealed partial class GoalKeeperOperationalLogger(
             safeRequestId);
     }
 
+    public void ApplicationInterruptionReconciled(Guid sessionId) =>
+        LogApplicationInterruptionReconciled(logger, sessionId);
+
     [LoggerMessage(
         EventId = 1501,
         Level = LogLevel.Warning,
@@ -283,6 +286,14 @@ public sealed partial class GoalKeeperOperationalLogger(
         string boundary,
         Guid sessionId,
         string requestId);
+
+    [LoggerMessage(
+        EventId = 1503,
+        Level = LogLevel.Warning,
+        Message = "Focus Session {SessionId} ended early after an application interruption was detected at startup.")]
+    private static partial void LogApplicationInterruptionReconciled(
+        ILogger logger,
+        Guid sessionId);
 
     private static string SafeBoundary(string value) =>
         value switch

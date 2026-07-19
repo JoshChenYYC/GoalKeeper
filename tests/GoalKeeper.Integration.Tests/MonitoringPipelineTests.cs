@@ -1006,6 +1006,11 @@ public sealed class MonitoringPipelineTests
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        public Task<SessionContractView?> GetContractAsync(
+            Guid id,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public Task<SessionSetupView> CreateReadySetupAsync(
             SessionContractDraft draft,
             DateTimeOffset nowUtc,
@@ -1032,6 +1037,10 @@ public sealed class MonitoringPipelineTests
 
         public Task<FocusSessionRuntimeView?> GetSessionAsync(
             Guid id,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<FocusSessionRuntimeView?> GetActiveSessionAsync(
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 

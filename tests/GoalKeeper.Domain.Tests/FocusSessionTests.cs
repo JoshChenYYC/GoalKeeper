@@ -125,6 +125,57 @@ public sealed class FocusSessionTests
         Assert.Equal(EndedEarlyReason.MonitoringFailure, outage.EndedEarlyReason);
     }
 
+    [Theory]
+    [InlineData(FocusSessionState.Focusing)]
+    [InlineData(FocusSessionState.ScheduledBreak)]
+    [InlineData(FocusSessionState.RecoveryCheckIn)]
+    [InlineData(FocusSessionState.RecoveryWindow)]
+    [InlineData(FocusSessionState.AwaitingResponse)]
+    [InlineData(FocusSessionState.MonitoringUnavailable)]
+    public void Application_interruption_ends_every_nonterminal_state_and_unlocks_the_goal(
+        FocusSessionState state)
+    {
+        var (goal, session, deviation) = StartSession(
+            breaks:
+            [
+                ScheduledBreak.Create(
+                    TimeSpan.FromMinutes(1),
+                    TimeSpan.FromMinutes(1))
+            ]);
+        MoveTo(state, session, deviation);
+        var version = session.Version;
+
+        session.EndAfterApplicationInterruption();
+
+        var runtime = session.CreateSnapshot();
+        Assert.Equal(FocusSessionState.EndedEarly, runtime.State);
+        Assert.Equal(EndedEarlyReason.ApplicationInterrupted, runtime.EndedEarlyReason);
+        Assert.Equal(version + 1, runtime.Version);
+        Assert.Equal(_clock.UtcNow, runtime.EndedAtUtc);
+        Assert.Null(runtime.Timer.RunningSince);
+        Assert.Null(runtime.BreakEndsAt);
+        Assert.Null(runtime.CurrentRecoveryWindow);
+        Assert.Null(runtime.ResponseDeadline);
+        Assert.Null(runtime.MonitoringUnavailableAt);
+        Assert.Null(runtime.MonitoringDeadline);
+        var restoredGoal = Goal.Rehydrate(
+            goal.Id,
+            goal.Title,
+            goal.Description,
+            goal.Status,
+            goal.CreatedAtUtc,
+            goal.CompletedAtUtc);
+        var restored = FocusSession.Rehydrate(
+            restoredGoal,
+            session.Contract,
+            runtime,
+            _clock);
+        Assert.Equal(EndedEarlyReason.ApplicationInterrupted, restored.EndedEarlyReason);
+
+        goal.Update("Changed", null, _clock);
+        Assert.Equal("Changed", goal.Title);
+    }
+
     [Fact]
     public void Explicit_goal_completion_fulfills_session_and_review_is_optional_once()
     {
@@ -251,6 +302,39 @@ public sealed class FocusSessionTests
     {
         session.AdmitIntervention(InterventionEvaluation(session, deviation, TimeSpan.Zero));
         session.Recommit();
+    }
+
+    private void MoveTo(
+        FocusSessionState state,
+        FocusSession session,
+        Deviation deviation)
+    {
+        switch (state)
+        {
+            case FocusSessionState.Focusing:
+                return;
+            case FocusSessionState.ScheduledBreak:
+                _clock.Advance(TimeSpan.FromMinutes(1));
+                session.Advance();
+                return;
+            case FocusSessionState.RecoveryCheckIn:
+                session.AdmitIntervention(
+                    InterventionEvaluation(session, deviation, TimeSpan.Zero));
+                return;
+            case FocusSessionState.RecoveryWindow:
+                AdmitAndRecommit(session, deviation);
+                return;
+            case FocusSessionState.AwaitingResponse:
+                session.AdmitIntervention(
+                    InterventionEvaluation(session, deviation, TimeSpan.Zero));
+                session.ReportNoResponse();
+                return;
+            case FocusSessionState.MonitoringUnavailable:
+                session.ReportMonitoringUnavailable();
+                return;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(state));
+        }
     }
 
     private static object? Run(Action action)

@@ -970,7 +970,7 @@ public sealed class SessionRuntimeController(
 
         var goal = await repository.GetGoalAsync(view.GoalId, cancellationToken).ConfigureAwait(false)
             ?? throw new KeyNotFoundException("Goal not found.");
-        var contract = await repository.GetLatestContractAsync(view.GoalId, cancellationToken)
+        var contract = await repository.GetContractAsync(view.ContractId, cancellationToken)
             .ConfigureAwait(false)
             ?? throw new KeyNotFoundException("Session Contract not found.");
         if (contract.Id != view.ContractId)

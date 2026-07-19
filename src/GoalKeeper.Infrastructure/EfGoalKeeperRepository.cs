@@ -69,8 +69,7 @@ public sealed partial class EfGoalKeeperRepository(
             throw new PersistenceConflictException("The Goal was changed by another operation.");
         }
         if (entity.Status != GoalStatus.Active.ToString() ||
-            await db.FocusSessions.AnyAsync(x => x.GoalId == id &&
-                x.State != "Fulfilled" && x.State != "EndedEarly", cancellationToken))
+            await ActiveSessions(db).AnyAsync(x => x.GoalId == id, cancellationToken))
         {
             throw new DomainRuleViolationException("The Goal cannot be edited while completed or in an active session.");
         }
@@ -98,7 +97,12 @@ public sealed partial class EfGoalKeeperRepository(
         {
             throw new PersistenceConflictException("The Goal was changed by another operation.");
         }
-        if (entity.Sessions.Any(x => x.State is not ("Fulfilled" or "EndedEarly")))
+        foreach (var session in entity.Sessions)
+        {
+            EnsureActivityInvariant(session);
+        }
+
+        if (entity.Sessions.Any(x => !IsTerminalState(x.State)))
         {
             throw new DomainRuleViolationException("An active Focus Session locks Goal deletion.");
         }
@@ -161,6 +165,18 @@ public sealed partial class EfGoalKeeperRepository(
         var contracts = await db.SessionContracts.AsNoTracking().Where(x => x.GoalId == goalId)
             .Include(x => x.Breaks).Include(x => x.Deviations).ToListAsync(cancellationToken);
         var entity = contracts.OrderByDescending(x => x.ConfirmedAtUtc).FirstOrDefault();
+        return entity is null ? null : ToView(entity);
+    }
+
+    public async Task<SessionContractView?> GetContractAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(cancellationToken);
+        var entity = await db.SessionContracts.AsNoTracking()
+            .Include(x => x.Breaks)
+            .Include(x => x.Deviations)
+            .SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
         return entity is null ? null : ToView(entity);
     }
 
@@ -247,6 +263,23 @@ public sealed partial class EfGoalKeeperRepository(
 
     private static ApplicationSettingEntity Setting(string key, double value) =>
         new() { Key = key, Value = value.ToString(System.Globalization.CultureInfo.InvariantCulture) };
+
+    private static IQueryable<FocusSessionEntity> ActiveSessions(GoalKeeperDbContext db) =>
+        db.FocusSessions.Where(x => x.State != "Fulfilled" && x.State != "EndedEarly");
+
+    private static bool IsTerminalState(string state) =>
+        state is "Fulfilled" or "EndedEarly";
+
+    private static void EnsureActivityInvariant(FocusSessionEntity session)
+    {
+        if (session.ActiveSlot is not null and not 1 ||
+            IsTerminalState(session.State) == session.ActiveSlot.HasValue)
+        {
+            throw new InvalidOperationException(
+                "The stored Focus Session active-state fields are inconsistent.");
+        }
+    }
+
     private static double ReadDouble(Dictionary<string, string> values, string key) =>
         double.Parse(values[key], System.Globalization.CultureInfo.InvariantCulture);
     private static int ReadInt(Dictionary<string, string> values, string key) =>

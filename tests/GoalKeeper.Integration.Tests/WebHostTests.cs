@@ -178,15 +178,16 @@ public sealed class WebHostTests
             var status = await restartedController.GetStatusAsync();
             var persistedAfterRestart = await restartedRepository.GetSessionAsync(sessionId);
             Assert.NotNull(persistedAfterRestart);
-
-            var reconciledToTerminal = persistedAfterRestart.State is
-                FocusSessionState.Fulfilled or FocusSessionState.EndedEarly;
-            var reattachedToRuntime =
-                status.ControllerState == SessionRuntimeControllerState.Running &&
-                status.SessionId == sessionId;
-            Assert.True(
-                reconciledToTerminal || reattachedToRuntime,
-                "A persisted nonterminal Focus Session must not remain active but unreachable after restart.");
+            Assert.Equal(FocusSessionState.EndedEarly, persistedAfterRestart.State);
+            Assert.Equal(
+                EndedEarlyReason.ApplicationInterrupted,
+                persistedAfterRestart.Runtime.EndedEarlyReason);
+            Assert.Null(await restartedRepository.GetActiveSessionAsync());
+            Assert.Equal(SessionRuntimeControllerState.Idle, status.ControllerState);
+            Assert.Null(status.SessionId);
+            Assert.Equal(
+                GoalStatus.Active,
+                (await restartedRepository.GetGoalAsync(persistedAfterRestart.GoalId))!.Status);
         }
         finally
         {

@@ -12,7 +12,13 @@ public enum FocusSessionState
     EndedEarly
 }
 
-public enum EndedEarlyReason { UserRequest, NoResponse, MonitoringFailure }
+public enum EndedEarlyReason
+{
+    UserRequest,
+    NoResponse,
+    MonitoringFailure,
+    ApplicationInterrupted
+}
 
 public sealed class FocusSession
 {
@@ -456,6 +462,14 @@ public sealed class FocusSession
     {
         EnsureNotTerminal();
         EndEarlyAt(global::GoalKeeper.Domain.EndedEarlyReason.UserRequest, _clock.MonotonicNow);
+    }
+
+    public void EndAfterApplicationInterruption()
+    {
+        EnsureNotTerminal();
+        EndEarlyAt(
+            global::GoalKeeper.Domain.EndedEarlyReason.ApplicationInterrupted,
+            _clock.MonotonicNow);
     }
 
     public SessionReview SubmitReview(

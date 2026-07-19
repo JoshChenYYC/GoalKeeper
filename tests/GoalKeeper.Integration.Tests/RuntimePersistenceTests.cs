@@ -1,6 +1,7 @@
 using System.Text.Json;
 using GoalKeeper.Application;
 using GoalKeeper.Application.Reasoning;
+using GoalKeeper.Application.Runtime;
 using GoalKeeper.Domain;
 using GoalKeeper.Infrastructure;
 using Microsoft.Data.Sqlite;
@@ -367,6 +368,48 @@ public sealed class RuntimePersistenceTests : IAsyncLifetime
         Assert.Equal(SessionSetupStatus.Ready, storedSetup!.Status);
         await using var db = await _factory.CreateDbContextAsync();
         Assert.Single(await db.FocusSessions.Where(x => x.ActiveSlot != null).ToListAsync());
+    }
+
+    [Fact]
+    public async Task Application_interruption_recovery_is_atomic_and_idempotent()
+    {
+        var prepared = await PrepareSessionAsync("Interrupted");
+        var started = await _repository.StartSessionAsync(
+            prepared.Setup.Id,
+            prepared.Setup.Version,
+            prepared.Session.CreateSnapshot());
+        var recovery = new SessionInterruptionRecovery(_repository, _clock);
+
+        var reconciled = await recovery.ReconcileAsync();
+        var repeated = await recovery.ReconcileAsync();
+
+        Assert.NotNull(reconciled);
+        Assert.Null(repeated);
+        Assert.Equal(FocusSessionState.EndedEarly, reconciled.State);
+        Assert.Equal(started.Version + 1, reconciled.Version);
+        Assert.Equal(
+            EndedEarlyReason.ApplicationInterrupted,
+            reconciled.Runtime.EndedEarlyReason);
+        Assert.Null(await _repository.GetActiveSessionAsync());
+        var goal = await _repository.GetGoalAsync(prepared.Goal.Id);
+        Assert.Equal(GoalStatus.Active, goal!.Status);
+        var updatedGoal = await _workflow.UpdateGoalAsync(
+            goal.Id,
+            goal.Version,
+            "Unlocked after interruption",
+            null);
+        Assert.Equal("Unlocked after interruption", updatedGoal.Title);
+
+        await using var db = await _factory.CreateDbContextAsync();
+        var stored = await db.FocusSessions.SingleAsync(x => x.Id == started.Id);
+        Assert.Equal("EndedEarly", stored.State);
+        Assert.Null(stored.ActiveSlot);
+        Assert.Equal("ApplicationInterrupted", stored.EndReason);
+        Assert.Single(await db.AuditEvents.Where(x =>
+            x.SessionId == started.Id &&
+            x.Event == "runtime.application_interrupted" &&
+            x.FromState == "Focusing" &&
+            x.ToState == "EndedEarly").ToListAsync());
     }
 
     [Fact]

@@ -77,9 +77,7 @@ public sealed partial class EfGoalKeeperRepository
             throw new DomainRuleViolationException("The runtime snapshot does not match the Session Setup.");
         }
 
-        if (await db.FocusSessions.AnyAsync(
-                x => x.State != "Fulfilled" && x.State != "EndedEarly",
-                cancellationToken))
+        if (await ActiveSessions(db).AnyAsync(cancellationToken))
         {
             throw new DomainRuleViolationException("Another Focus Session is already active.");
         }
@@ -123,6 +121,32 @@ public sealed partial class EfGoalKeeperRepository
         return entity is null ? null : ToRuntimeView(entity);
     }
 
+    public async Task<FocusSessionRuntimeView?> GetActiveSessionAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(cancellationToken);
+        var candidates = await db.FocusSessions.AsNoTracking()
+            .Where(x =>
+                x.ActiveSlot != null ||
+                x.State != "Fulfilled" && x.State != "EndedEarly")
+            .Take(2)
+            .ToListAsync(cancellationToken);
+        if (candidates.Count > 1)
+        {
+            throw new InvalidOperationException(
+                "The database contains more than one active Focus Session.");
+        }
+
+        var entity = candidates.SingleOrDefault();
+        if (entity is null)
+        {
+            return null;
+        }
+
+        EnsureActivityInvariant(entity);
+        return ToRuntimeView(entity);
+    }
+
     public async Task<FocusSessionRuntimeView> UpdateSessionAsync(
         Guid id,
         RuntimeMutation mutation,
@@ -133,6 +157,7 @@ public sealed partial class EfGoalKeeperRepository
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var entity = await db.FocusSessions.SingleOrDefaultAsync(x => x.Id == id, cancellationToken)
             ?? throw new KeyNotFoundException("Focus Session not found.");
+        EnsureActivityInvariant(entity);
         if (entity.Version != mutation.ExpectedVersion)
         {
             throw new PersistenceConflictException("The Focus Session was changed by another operation.");
@@ -168,6 +193,7 @@ public sealed partial class EfGoalKeeperRepository
         await using var db = await factory.CreateDbContextAsync(cancellationToken);
         var entity = await db.FocusSessions.SingleOrDefaultAsync(x => x.Id == id, cancellationToken)
             ?? throw new KeyNotFoundException("Focus Session not found.");
+        EnsureActivityInvariant(entity);
         if (entity.ActiveSlot is not null)
         {
             throw new DomainRuleViolationException("An active Focus Session cannot be deleted.");
@@ -198,6 +224,11 @@ public sealed partial class EfGoalKeeperRepository
         }
 
         var entities = await query.ToListAsync(cancellationToken);
+        foreach (var entity in entities)
+        {
+            EnsureActivityInvariant(entity);
+        }
+
         return entities.OrderByDescending(x => x.StartedAtUtc)
             .Take(limit)
             .Select(x => new SessionHistoryItem(
@@ -623,11 +654,23 @@ public sealed partial class EfGoalKeeperRepository
                 entity.RuntimeSnapshotJson,
                 RuntimeJsonOptions)
               ?? throw new InvalidOperationException("The Focus Session runtime snapshot is missing.");
+        var state = ParseEnum<FocusSessionState>(entity.State);
+        EnsureActivityInvariant(entity);
+        if (runtime.Id != entity.Id || runtime.GoalId != entity.GoalId ||
+            runtime.ContractId != entity.ContractId || runtime.State != state ||
+            runtime.Version != entity.Version ||
+            runtime.EndedAtUtc != entity.EndedAtUtc ||
+            runtime.EndedEarlyReason != ParseNullableEnum<EndedEarlyReason>(entity.EndReason))
+        {
+            throw new InvalidOperationException(
+                "The stored Focus Session row and runtime snapshot are inconsistent.");
+        }
+
         return new(
             entity.Id,
             entity.GoalId,
             entity.ContractId,
-            ParseEnum<FocusSessionState>(entity.State),
+            state,
             entity.Version,
             entity.StartedAtUtc,
             entity.EndedAtUtc,

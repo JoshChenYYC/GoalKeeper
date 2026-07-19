@@ -58,6 +58,7 @@ public static class RuntimeServiceCollectionExtensions
         services.TryAddSingleton<IClock, SystemClock>();
         services.AddSingleton<IGoalKeeperRepository, EfGoalKeeperRepository>();
         services.AddScoped<SetupWorkflow>();
+        services.AddScoped<SessionInterruptionRecovery>();
         services.AddSingleton<ISnapshotArtifactStore>(
             static provider => provider.GetRequiredService<SessionArtifactStore>());
         services.TryAddSingleton<IMonitoringDelay, SystemMonitoringDelay>();

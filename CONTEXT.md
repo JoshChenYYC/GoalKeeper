@@ -72,6 +72,10 @@ _Avoid_: Successful observation, task verified
 A final Focus Session outcome reached without fulfillment, together with a recorded reason.
 _Avoid_: Failed goal, abandoned user
 
+**Application Interruption**:
+An Ended Early reason used when GoalKeeper stops before a Focus Session reaches a final outcome.
+_Avoid_: User request, monitoring failure, resumed session
+
 **Session Review**:
 An optional lightweight reflection completed after a Focus Session ends.
 _Avoid_: Coaching conversation, performance grade

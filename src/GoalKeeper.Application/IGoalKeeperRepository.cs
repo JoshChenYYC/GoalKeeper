@@ -28,6 +28,10 @@ public interface IGoalKeeperRepository
 
     Task<SessionContractView?> GetLatestContractAsync(Guid goalId, CancellationToken cancellationToken = default);
 
+    Task<SessionContractView?> GetContractAsync(
+        Guid id,
+        CancellationToken cancellationToken = default);
+
     Task<SessionSetupView> CreateReadySetupAsync(
         SessionContractDraft draft,
         DateTimeOffset nowUtc,
@@ -50,6 +54,9 @@ public interface IGoalKeeperRepository
 
     Task<FocusSessionRuntimeView?> GetSessionAsync(
         Guid id,
+        CancellationToken cancellationToken = default);
+
+    Task<FocusSessionRuntimeView?> GetActiveSessionAsync(
         CancellationToken cancellationToken = default);
 
     Task<FocusSessionRuntimeView> UpdateSessionAsync(

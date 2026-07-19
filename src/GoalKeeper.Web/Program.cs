@@ -1,4 +1,5 @@
 using GoalKeeper.Application;
+using GoalKeeper.Application.Runtime;
 using GoalKeeper.Infrastructure;
 using GoalKeeper.Web.Components;
 using GoalKeeper.Web.Operations;
@@ -28,6 +29,15 @@ var app = builder.Build();
 await using (var scope = app.Services.CreateAsyncScope())
 {
     await scope.ServiceProvider.GetRequiredService<IGoalKeeperRepository>().InitializeAsync();
+    var interrupted = await scope.ServiceProvider
+        .GetRequiredService<SessionInterruptionRecovery>()
+        .ReconcileAsync();
+    if (interrupted is not null)
+    {
+        scope.ServiceProvider
+            .GetRequiredService<GoalKeeperOperationalLogger>()
+            .ApplicationInterruptionReconciled(interrupted.Id);
+    }
 }
 
 // Configure the HTTP request pipeline.
