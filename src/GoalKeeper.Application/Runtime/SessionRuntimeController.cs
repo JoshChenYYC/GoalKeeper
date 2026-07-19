@@ -14,7 +14,8 @@ public sealed class SessionRuntimeController(
     DurableReasoningOrchestrator reasoning,
     IRecoveryPort recovery,
     IClock clock,
-    ISessionRuntimeWorkerCoordinator? workerCoordinator = null)
+    ISessionRuntimeWorkerCoordinator? workerCoordinator = null,
+    IVoiceRecoveryPort? voiceRecovery = null)
     : IMonitoringSessionState,
       IMonitoringObservationSink,
       IMonitoringHealthEventSink,
@@ -22,11 +23,13 @@ public sealed class SessionRuntimeController(
       IAsyncDisposable
 {
     private readonly SemaphoreSlim _commands = new(1, 1);
+    private readonly SemaphoreSlim _voiceRecoveryGate = new(1, 1);
     private readonly object _stateSync = new();
     private readonly ConcurrentQueue<MonitoringHealthEvent> _healthEvents = new();
     private readonly HashSet<MonitoringTechnicalSource> _unavailableSources = [];
     private CancellationTokenSource? _monitoringCancellation;
     private Task? _monitoringTask;
+    private CancellationTokenSource? _activeVoiceRecoveryCancellation;
     private Guid? _setupId;
     private Guid? _sessionId;
     private long _sessionVersion;
@@ -263,12 +266,26 @@ public sealed class SessionRuntimeController(
         MutateAsync("runtime.advance", static session => session.Advance(), false, cancellationToken);
 
     public Task<FocusSessionRuntimeView?> CompleteGoalAsync(
-        CancellationToken cancellationToken = default) =>
-        MutateAsync("runtime.complete_goal", static session => session.CompleteGoal(), true, cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        CancelActiveVoiceRecovery();
+        return MutateAsync(
+            "runtime.complete_goal",
+            static session => session.CompleteGoal(),
+            true,
+            cancellationToken);
+    }
 
     public Task<FocusSessionRuntimeView?> EndEarlyAsync(
-        CancellationToken cancellationToken = default) =>
-        MutateAsync("runtime.end_early", static session => session.EndEarlyByUser(), false, cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        CancelActiveVoiceRecovery();
+        return MutateAsync(
+            "runtime.end_early",
+            static session => session.EndEarlyByUser(),
+            false,
+            cancellationToken);
+    }
 
     public Task<FocusSessionRuntimeView?> ReturnToRecoveryCheckInAsync(
         CancellationToken cancellationToken = default) =>
@@ -282,6 +299,7 @@ public sealed class SessionRuntimeController(
         string? transcript,
         CancellationToken cancellationToken = default)
     {
+        CancelActiveVoiceRecovery();
         RecoveryRequest request;
         FocusSessionRuntimeView requestedView;
         await _commands.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -342,16 +360,170 @@ public sealed class SessionRuntimeController(
 
         if (portResult is RecoveryFailureResponse failure)
         {
+            RecordRecoveryFailure(failure.Category);
+
+            return await repository.GetSessionAsync(requestedView.Id, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return await CommitRecoveryProposalAsync(
+                request,
+                requestedView,
+                transcript,
+                ((RecoveryProposalResponse)portResult).Proposal,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public async Task<FocusSessionRuntimeView?> SubmitVoiceRecoveryAsync(
+        CancellationToken cancellationToken = default)
+    {
+        if (voiceRecovery is null)
+        {
+            throw new InvalidOperationException("Voice Recovery is not configured.");
+        }
+
+        await _voiceRecoveryGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using var voiceCancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        lock (_stateSync)
+        {
+            _activeVoiceRecoveryCancellation = voiceCancellation;
+        }
+
+        try
+        {
+            return await SubmitVoiceRecoveryCoreAsync(
+                    voiceCancellation.Token)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+            when (!cancellationToken.IsCancellationRequested)
+        {
+            return null;
+        }
+        finally
+        {
             lock (_stateSync)
             {
-                _technicalFailure =
-                    $"recovery_{failure.Category.ToString().ToLowerInvariant()}";
+                if (ReferenceEquals(
+                        _activeVoiceRecoveryCancellation,
+                        voiceCancellation))
+                {
+                    _activeVoiceRecoveryCancellation = null;
+                }
+            }
+
+            _voiceRecoveryGate.Release();
+        }
+    }
+
+    private async Task<FocusSessionRuntimeView?> SubmitVoiceRecoveryCoreAsync(
+        CancellationToken cancellationToken)
+    {
+        if (voiceRecovery is null)
+        {
+            throw new InvalidOperationException("Voice Recovery is not configured.");
+        }
+
+        RecoveryRequest request;
+        FocusSessionRuntimeView requestedView;
+        await _commands.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var loaded = await LoadCurrentAsync(cancellationToken).ConfigureAwait(false);
+            if (loaded is null)
+            {
+                return null;
+            }
+
+            var (view, _, contract, session) = loaded.Value;
+            if (view.State != FocusSessionState.RecoveryCheckIn ||
+                view.Runtime.ActiveIntervention is not { } active)
+            {
+                throw new DomainRuleViolationException(
+                    "A Voice Recovery response requires an active Recovery Check-in.");
+            }
+
+            var turns = await repository.GetRecoveryTurnsAsync(
+                    view.Id,
+                    active.Id,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            request = CreateRecoveryRequest(
+                view,
+                contract,
+                turns,
+                transcript: null,
+                clock.UtcNow);
+            requestedView = view;
+        }
+        finally
+        {
+            _commands.Release();
+        }
+
+        VoiceRecoveryPortResult portResult;
+        try
+        {
+            portResult = await voiceRecovery.ProposeAsync(request, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (RecoveryVoiceException exception)
+        {
+            RecordRecoveryFailure(exception.Category);
+            return await repository.GetSessionAsync(requestedView.Id, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            lock (_stateSync)
+            {
+                _technicalFailure = $"recovery_{exception.GetType().Name}";
             }
 
             return await repository.GetSessionAsync(requestedView.Id, cancellationToken)
                 .ConfigureAwait(false);
         }
 
+        if (portResult is VoiceRecoveryFailureResponse failure)
+        {
+            RecordRecoveryFailure(failure.Category);
+            return await repository.GetSessionAsync(requestedView.Id, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        if (portResult is not VoiceRecoveryProposalResponse response)
+        {
+            lock (_stateSync)
+            {
+                _technicalFailure = "recovery_invalid_response";
+            }
+
+            return await repository.GetSessionAsync(requestedView.Id, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return await CommitRecoveryProposalAsync(
+                request,
+                requestedView,
+                response.CapturedTranscript,
+                response.Proposal,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<FocusSessionRuntimeView?> CommitRecoveryProposalAsync(
+        RecoveryRequest request,
+        FocusSessionRuntimeView requestedView,
+        string? capturedTranscript,
+        RecoveryProposal proposal,
+        CancellationToken cancellationToken)
+    {
         FocusSessionRuntimeView? persisted = null;
         var terminal = false;
         await _commands.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -376,9 +548,8 @@ public sealed class SessionRuntimeController(
                 fresh.Value.View,
                 fresh.Value.Contract,
                 freshTurns,
-                transcript,
+                capturedTranscript,
                 request.RequestedAtUtc);
-            var proposal = ((RecoveryProposalResponse)portResult).Proposal;
             var validation = RecoveryProposalValidator.Validate(revalidatedRequest, proposal);
             if (validation is not ValidRecoveryProposal valid)
             {
@@ -443,6 +614,33 @@ public sealed class SessionRuntimeController(
         }
 
         return persisted;
+    }
+
+    private void RecordRecoveryFailure(RecoveryFailureCategory category)
+    {
+        lock (_stateSync)
+        {
+            _technicalFailure =
+                $"recovery_{category.ToString().ToLowerInvariant()}";
+        }
+    }
+
+    private void CancelActiveVoiceRecovery()
+    {
+        CancellationTokenSource? active;
+        lock (_stateSync)
+        {
+            active = _activeVoiceRecoveryCancellation;
+        }
+
+        try
+        {
+            active?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Completion raced the state-changing command.
+        }
     }
 
     public async Task<SessionRuntimeStatus> GetStatusAsync(
@@ -668,7 +866,11 @@ public sealed class SessionRuntimeController(
 
     public async ValueTask DisposeAsync()
     {
+        CancelActiveVoiceRecovery();
         await StopMonitoringAsync().ConfigureAwait(false);
+        await _voiceRecoveryGate.WaitAsync().ConfigureAwait(false);
+        _voiceRecoveryGate.Release();
+        _voiceRecoveryGate.Dispose();
         _commands.Dispose();
     }
 
@@ -786,6 +988,7 @@ public sealed class SessionRuntimeController(
         var rationale = active.Evaluation.Rationale ??
             throw new DomainRuleViolationException(
                 "A Recovery request requires a Reasoning rationale.");
+        var evidenceSummary = CreateEvidenceSummary(evidence.Observations.Count);
         var turns = persistedTurns.Select(RecoveryTurnPersistence.FromView).ToArray();
         var options = new RecoveryRequestOptions(
             view.Runtime.Policy.MaximumCoachingTurns);
@@ -829,7 +1032,7 @@ public sealed class SessionRuntimeController(
                 active.Id,
                 evidence.Deviation.ListedDeviationId,
                 deviationDescription,
-                rationale,
+                evidenceSummary,
                 rationale,
                 active.AdmittedAtUtc),
             new(
@@ -850,6 +1053,11 @@ public sealed class SessionRuntimeController(
             requestedAtUtc,
             options);
     }
+
+    private static string CreateEvidenceSummary(int observationCount) =>
+        observationCount == 1
+            ? "The evidence episode contains 1 ordered observation associated with the suspected pattern."
+            : $"The evidence episode contains {observationCount} ordered observations associated with the suspected pattern.";
 
     private static void ApplyRecoveryOutcome(FocusSession session, RecoveryTurn turn)
     {

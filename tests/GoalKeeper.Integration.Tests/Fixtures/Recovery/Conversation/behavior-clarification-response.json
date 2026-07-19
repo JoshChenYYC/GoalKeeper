@@ -1,0 +1,24 @@
+{
+  "object": "response",
+  "status": "completed",
+  "error": null,
+  "incomplete_details": null,
+  "model": "gpt-5.6-terra",
+  "output": [
+    {
+      "type": "reasoning",
+      "summary": []
+    },
+    {
+      "type": "message",
+      "status": "completed",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "{\"outcome\":\"behavior_clarification\",\"clarification\":\"The phone was used to approve the report upload.\",\"assistant_message\":null,\"remainder_override_confirmed\":true}"
+        }
+      ]
+    }
+  ]
+}
