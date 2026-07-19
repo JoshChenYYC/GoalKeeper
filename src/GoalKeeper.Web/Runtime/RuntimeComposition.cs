@@ -6,6 +6,7 @@ using GoalKeeper.Application.Recovery;
 using GoalKeeper.Application.Runtime;
 using GoalKeeper.Domain;
 using GoalKeeper.Infrastructure;
+using GoalKeeper.Web.Operations;
 using GoalKeeper.Web.Presentation;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
@@ -162,7 +163,8 @@ public sealed class ControllerSessionRuntimeWorker(
     }
 }
 
-public sealed class RuntimeControllerEventRelay :
+public sealed class RuntimeControllerEventRelay(
+    GoalKeeperOperationalLogger? operationalLogger = null) :
     ICameraTechnicalEventSink,
     IMonitoringObservationSink,
     IMonitoringHealthEventSink
@@ -183,16 +185,34 @@ public sealed class RuntimeControllerEventRelay :
         }
     }
 
-    public void Report(CameraTechnicalEvent technicalEvent) =>
+    public void Report(CameraTechnicalEvent technicalEvent)
+    {
+        operationalLogger?.TechnicalBoundaryEvent(
+            "camera",
+            SnakeCase(technicalEvent.Kind.ToString()),
+            Controller.SessionId);
         Controller.Report(technicalEvent);
+    }
 
     public Task PublishAsync(
         ReasoningEligibleObservation observation,
         CancellationToken cancellationToken = default) =>
         Controller.PublishAsync(observation, cancellationToken);
 
-    public void Report(MonitoringHealthEvent healthEvent) =>
+    public void Report(MonitoringHealthEvent healthEvent)
+    {
+        operationalLogger?.TechnicalBoundaryEvent(
+            healthEvent.Source.ToString().ToLowerInvariant(),
+            SnakeCase(healthEvent.Kind.ToString()),
+            healthEvent.SessionId);
         Controller.Report(healthEvent);
+    }
+
+    private static string SnakeCase(string value) =>
+        string.Concat(value.Select((character, index) =>
+            index > 0 && char.IsUpper(character)
+                ? $"_{char.ToLowerInvariant(character)}"
+                : char.ToLowerInvariant(character).ToString()));
 
     private SessionRuntimeController Controller =>
         Volatile.Read(ref _controller) ??
