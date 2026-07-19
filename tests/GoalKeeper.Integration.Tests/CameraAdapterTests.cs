@@ -12,6 +12,16 @@ public sealed class CameraAdapterTests
     private static readonly TimeSpan CapturedAtMonotonic = TimeSpan.FromSeconds(42);
 
     [Fact]
+    public void Native_camera_prefers_DirectShow_on_Windows()
+    {
+        var expected = OperatingSystem.IsWindows()
+            ? OpenCvSharp.VideoCaptureAPIs.DSHOW
+            : OpenCvSharp.VideoCaptureAPIs.ANY;
+
+        Assert.Equal(expected, OpenCvNativeCamera.PreferredBackend);
+    }
+
+    [Fact]
     public async Task Open_failure_reports_a_technical_event_and_releases_exactly_once()
     {
         var native = new FakeNativeCamera { OpenResult = false };

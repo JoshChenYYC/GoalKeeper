@@ -21,6 +21,11 @@ internal sealed class OpenCvNativeCamera : INativeCamera
 {
     private VideoCapture? _capture;
 
+    internal static VideoCaptureAPIs PreferredBackend =>
+        OperatingSystem.IsWindows()
+            ? VideoCaptureAPIs.DSHOW
+            : VideoCaptureAPIs.ANY;
+
     public bool Open(int deviceIndex)
     {
         if (_capture is not null)
@@ -30,7 +35,7 @@ internal sealed class OpenCvNativeCamera : INativeCamera
 
         var capture = new VideoCapture();
         _capture = capture;
-        return capture.Open(deviceIndex, VideoCaptureAPIs.ANY) && capture.IsOpened();
+        return capture.Open(deviceIndex, PreferredBackend) && capture.IsOpened();
     }
 
     public INativeCameraFrame? Read()
