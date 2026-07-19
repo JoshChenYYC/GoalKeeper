@@ -4,6 +4,7 @@ using GoalKeeper.Application.Perception;
 using GoalKeeper.Application.Reasoning;
 using GoalKeeper.Application.Recovery;
 using GoalKeeper.Application.Runtime;
+using GoalKeeper.Domain;
 using GoalKeeper.Web.Runtime;
 using GoalKeeper.Web.Presentation;
 using Microsoft.AspNetCore.Hosting;
@@ -90,6 +91,102 @@ public sealed class WebHostTests
             Assert.Equal(
                 SessionRuntimeControllerState.Idle,
                 (await controller.GetStatusAsync()).ControllerState);
+        }
+        finally
+        {
+            if (Directory.Exists(dataRoot))
+            {
+                Directory.Delete(dataRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task Restart_does_not_orphan_a_persisted_nonterminal_focus_session()
+    {
+        var dataRoot = Path.Combine(
+            Path.GetTempPath(),
+            $"goalkeeper-restart-recovery-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dataRoot);
+        try
+        {
+            Guid sessionId;
+            using (var firstHost = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+                   {
+                       builder.UseSetting("GoalKeeper:DataRoot", dataRoot);
+                       builder.ConfigureLogging(logging => logging.ClearProviders());
+                   }))
+            {
+                using var client = firstHost.CreateClient();
+                _ = await client.GetAsync("/");
+                await using var scope = firstHost.Services.CreateAsyncScope();
+                var workflow = scope.ServiceProvider.GetRequiredService<SetupWorkflow>();
+                var repository = scope.ServiceProvider.GetRequiredService<IGoalKeeperRepository>();
+                var clock = scope.ServiceProvider.GetRequiredService<IClock>();
+                await workflow.SaveProfileAsync(
+                    "Default",
+                    [new("Phone", VisualObservability.Observable)]);
+                var goal = await workflow.CreateGoalAsync("Survives restart", null);
+                var setup = await workflow.ConfirmAsync(await workflow.PrepareAsync(goal.Id));
+                var domainGoal = Goal.Rehydrate(
+                    goal.Id,
+                    goal.Title,
+                    goal.Description,
+                    goal.Status,
+                    goal.CreatedAtUtc,
+                    goal.CompletedAtUtc);
+                var contract = SessionContract.Rehydrate(
+                    setup.Contract.Id,
+                    new GoalSnapshot(
+                        setup.Contract.GoalId,
+                        setup.Contract.GoalTitle,
+                        setup.Contract.GoalDescription),
+                    setup.Contract.TargetFocusDuration,
+                    setup.Contract.ScheduledBreaks.Select(value =>
+                        ScheduledBreak.Create(value.ActiveFocusOffset, value.Duration)),
+                    new DeviationProfileSnapshot(
+                        setup.Contract.DeviationProfileId,
+                        setup.Contract.DeviationProfileName,
+                        setup.Contract.Deviations.Select(value =>
+                            new DeviationSnapshot(
+                                value.Id,
+                                value.Description,
+                                value.Observability)).ToArray()),
+                    setup.Contract.ReasoningMode,
+                    setup.Contract.Sensitivity,
+                    setup.Contract.ConfirmedAtUtc);
+                var session = FocusSession.Start(domainGoal, contract, true, clock);
+                var persisted = await repository.StartSessionAsync(
+                    setup.Id,
+                    setup.Version,
+                    session.CreateSnapshot());
+                sessionId = persisted.Id;
+                Assert.Equal(FocusSessionState.Focusing, persisted.State);
+            }
+
+            using var restartedHost = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+            {
+                builder.UseSetting("GoalKeeper:DataRoot", dataRoot);
+                builder.ConfigureLogging(logging => logging.ClearProviders());
+            });
+            using var restartedClient = restartedHost.CreateClient();
+            _ = await restartedClient.GetAsync("/");
+            var restartedController =
+                restartedHost.Services.GetRequiredService<SessionRuntimeController>();
+            var restartedRepository =
+                restartedHost.Services.GetRequiredService<IGoalKeeperRepository>();
+            var status = await restartedController.GetStatusAsync();
+            var persistedAfterRestart = await restartedRepository.GetSessionAsync(sessionId);
+            Assert.NotNull(persistedAfterRestart);
+
+            var reconciledToTerminal = persistedAfterRestart.State is
+                FocusSessionState.Fulfilled or FocusSessionState.EndedEarly;
+            var reattachedToRuntime =
+                status.ControllerState == SessionRuntimeControllerState.Running &&
+                status.SessionId == sessionId;
+            Assert.True(
+                reconciledToTerminal || reattachedToRuntime,
+                "A persisted nonterminal Focus Session must not remain active but unreachable after restart.");
         }
         finally
         {
