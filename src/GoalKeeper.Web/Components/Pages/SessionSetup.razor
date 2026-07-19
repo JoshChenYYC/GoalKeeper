@@ -5,9 +5,20 @@
 <PageTitle>Session Setup · GoalKeeper</PageTitle>
 <h1>Session Setup</h1>
 
-@if (_form is null)
+@if (_form is null && _error is null)
 {
     <p>Loading…</p>
+}
+else if (_form is null)
+{
+    <section class="empty-state">
+        <h2>Session setup isn’t ready.</h2>
+        <p>@_error</p>
+        <div class="actions">
+            <a class="button" href="/profile">Create Focus profile</a>
+            <a class="button secondary" href="/">Return to goals</a>
+        </div>
+    </section>
 }
 else
 {
@@ -48,15 +59,26 @@ else
 
     protected override async Task OnParametersSetAsync()
     {
-        _draft = await Workflow.PrepareAsync(GoalId);
-        _form = new()
+        try
         {
-            TargetMinutes = (int)_draft.TargetFocusDuration.TotalMinutes,
-            Breaks = string.Join(Environment.NewLine, _draft.ScheduledBreaks.Select(x =>
-                $"{x.ActiveFocusOffset.TotalMinutes:g}:{x.Duration.TotalMinutes:g}")),
-            ReasoningMode = _draft.ReasoningMode,
-            Sensitivity = _draft.Sensitivity
-        };
+            _draft = await Workflow.PrepareAsync(GoalId);
+            _form = new()
+            {
+                TargetMinutes = (int)_draft.TargetFocusDuration.TotalMinutes,
+                Breaks = string.Join(Environment.NewLine, _draft.ScheduledBreaks.Select(x =>
+                    $"{x.ActiveFocusOffset.TotalMinutes:g}:{x.Duration.TotalMinutes:g}")),
+                ReasoningMode = _draft.ReasoningMode,
+                Sensitivity = _draft.Sensitivity
+            };
+            _error = null;
+        }
+        catch (Exception exception) when (
+            exception is DomainRuleViolationException or KeyNotFoundException)
+        {
+            _draft = null;
+            _form = null;
+            _error = exception.Message;
+        }
     }
 
     private async Task ConfirmAsync()

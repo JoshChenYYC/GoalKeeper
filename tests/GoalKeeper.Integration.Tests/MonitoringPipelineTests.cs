@@ -112,6 +112,80 @@ public sealed class MonitoringPipelineTests
     }
 
     [Fact]
+    public async Task Accelerated_soak_keeps_only_in_flight_and_newest_pending_frame()
+    {
+        const int captureCount = 250;
+        using var cancellation = new CancellationTokenSource();
+        var clock = new MutableClock();
+        var delay = new ManualDelay(clock);
+        var camera = new RecordingCamera(clock);
+        var repository = new RecordingRepository();
+        var perception = new DeterministicPerceptionFake(
+        [
+            PerceptionFakeStep.Delayed(Success()),
+            PerceptionFakeStep.Return(Success())
+        ]);
+        var artifacts = new RecordingArtifactStore();
+        var observations = new RecordingObservationSink();
+        var pipeline = CreatePipeline(
+            camera,
+            perception,
+            repository,
+            artifacts,
+            delay,
+            clock,
+            observations);
+
+        var run = pipeline.RunAsync(
+            new SessionState(),
+            Options(),
+            cancellation.Token);
+        await EventuallyAsync(() => camera.CaptureTimes.Count == 1 &&
+                                    perception.PendingDelayCount == 1);
+        for (var capture = 1; capture < captureCount; capture++)
+        {
+            await delay.AdvanceAsync();
+            await EventuallyAsync(() => camera.CaptureTimes.Count == capture + 1);
+        }
+
+        Assert.Equal(captureCount, repository.Snapshots.Length);
+        Assert.Equal(
+            2,
+            repository.Snapshots.Count(snapshot =>
+                snapshot.Status == SnapshotProcessingStatus.Captured));
+        Assert.Equal(
+            captureCount - 2,
+            repository.Snapshots.Count(snapshot =>
+                snapshot.Status == SnapshotProcessingStatus.Superseded));
+        Assert.Single(perception.Requests);
+        Assert.Equal(captureCount, artifacts.Retained.Count);
+        Assert.Equal(captureCount * 5, repository.Snapshots.Sum(snapshot => snapshot.StoredBytes));
+
+        perception.ReleaseNextDelay();
+        await EventuallyAsync(() =>
+            observations.Observations.Count == 1 &&
+            perception.Requests.Count == 2);
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
+
+        Assert.Equal(2, perception.Requests.Count);
+        Assert.Equal(0, perception.PendingDelayCount);
+        Assert.Equal(
+            1,
+            repository.Snapshots.Count(snapshot =>
+                snapshot.Status == SnapshotProcessingStatus.Observed));
+        Assert.Equal(
+            1,
+            repository.Snapshots.Count(snapshot =>
+                snapshot.Status == SnapshotProcessingStatus.Stale));
+        Assert.Equal(
+            captureCount - 2,
+            repository.Snapshots.Count(snapshot =>
+                snapshot.Status == SnapshotProcessingStatus.Superseded));
+        Assert.Equal(1, camera.ReleaseCount);
+    }
+
+    [Fact]
     public async Task Only_fresh_valid_non_break_results_are_exposed_to_reasoning()
     {
         using var cancellation = new CancellationTokenSource();

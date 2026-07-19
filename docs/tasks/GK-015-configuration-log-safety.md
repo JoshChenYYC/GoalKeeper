@@ -1,6 +1,6 @@
 # GK-015 — Configuration, logging, and failure safety
 
-**Status:** In progress
+**Status:** Done
 **Owner:** Codex `/root`
 **Branch:** `task/GK-015-configuration-log-safety`
 **Depends on:** GK-003, GK-006, GK-009, GK-011, GK-012

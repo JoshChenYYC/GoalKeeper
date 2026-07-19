@@ -214,6 +214,19 @@
     max-width: 44rem;
 }
 
+.voice-response {
+    max-width: 44rem;
+    display: grid;
+    gap: .75rem;
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid #ded4b4;
+}
+
+.voice-response .field-hint {
+    margin: 0;
+}
+
 .recovery-panel textarea:focus-visible,
 .recovery-panel button:focus-visible,
 .session-actions button:focus-visible,

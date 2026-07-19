@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Threading.Channels;
 using GoalKeeper.Web.Runtime;
 using Microsoft.Extensions.DependencyInjection;
@@ -5,6 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace GoalKeeper.Integration.Tests;
 
+[Collection("Session runtime resource metrics")]
 public sealed class SessionRuntimeHostingTests
 {
     [Fact]
@@ -43,6 +45,54 @@ public sealed class SessionRuntimeHostingTests
             harness.Probe.CancellationCount == 1 &&
             harness.Probe.AsyncDisposalCount == 1);
         Assert.Null(harness.Registry.ActiveSessionId);
+    }
+
+    [Fact]
+    public async Task Repeated_terminal_cancellation_leaves_no_worker_or_scope_alive()
+    {
+        const int sessionCount = 50;
+        const long maximumRetainedMemoryGrowth = 8 * 1024 * 1024;
+        const int maximumThreadGrowth = 8;
+        await using var harness = await HostedServiceHarness.StartAsync();
+        var completions = new List<Task>(sessionCount);
+        using var process = Process.GetCurrentProcess();
+        var initialMemory = GC.GetTotalMemory(forceFullCollection: true);
+        process.Refresh();
+        var initialThreads = process.Threads.Count;
+
+        for (var completedSessions = 1;
+             completedSessions <= sessionCount;
+             completedSessions++)
+        {
+            var sessionId = Guid.NewGuid();
+            var handle = harness.Registry.Start(sessionId);
+            completions.Add(handle.Completion);
+            await harness.Probe.WaitForStartAsync(sessionId);
+
+            Assert.True(harness.Registry.Cancel(sessionId));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => handle.Completion.WaitAsync(TimeSpan.FromSeconds(5)));
+            await EventuallyAsync(() =>
+                harness.Registry.ActiveSessionId is null &&
+                harness.Probe.CancellationCount == completedSessions &&
+                harness.Probe.AsyncDisposalCount == completedSessions);
+        }
+
+        Assert.Null(harness.Registry.ActiveSessionId);
+        Assert.Equal(sessionCount, harness.Probe.ConstructionCount);
+        Assert.Equal(sessionCount, harness.Probe.CancellationCount);
+        Assert.Equal(sessionCount, harness.Probe.AsyncDisposalCount);
+        Assert.All(completions, completion => Assert.True(completion.IsCompleted));
+
+        var finalMemory = GC.GetTotalMemory(forceFullCollection: true);
+        process.Refresh();
+        var finalThreads = process.Threads.Count;
+        Assert.True(
+            finalMemory - initialMemory <= maximumRetainedMemoryGrowth,
+            $"Retained memory grew by {finalMemory - initialMemory:N0} bytes.");
+        Assert.True(
+            finalThreads - initialThreads <= maximumThreadGrowth,
+            $"Process thread count grew by {finalThreads - initialThreads}.");
     }
 
     [Fact]
@@ -300,3 +350,8 @@ public sealed class SessionRuntimeHostingTests
         }
     }
 }
+
+[CollectionDefinition(
+    "Session runtime resource metrics",
+    DisableParallelization = true)]
+public sealed class SessionRuntimeResourceMetricsGroup;

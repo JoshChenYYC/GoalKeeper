@@ -47,7 +47,7 @@ else
                 <i aria-hidden="true"></i>
                 @MonitoringLabel
             </span>
-            <span class="health muted">MIC off</span>
+            <span class="@MicrophoneClass">@MicrophoneLabel</span>
         </div>
     </header>
 
@@ -111,9 +111,23 @@ else
                                    rows="4"
                                    autocomplete="off"
                                    @bind-Value="_recovery.Response" />
-                    <span class="field-hint">Use your own words. Text works now; voice can be added without changing this flow.</span>
+                    <span class="field-hint">Use your own words. Text remains available when voice is not configured.</span>
                     <button type="submit" disabled="@_commandInFlight">Send response</button>
                 </EditForm>
+                @if (_view.CanSubmitVoiceRecovery)
+                {
+                    <div class="voice-response">
+                        <span class="field-hint">Voice activates the microphone only for this check-in, discards raw audio after processing, and may send bounded audio and transcript data to the configured provider.</span>
+                        <button type="button"
+                                class="button secondary"
+                                disabled="@_commandInFlight"
+                                @onclick="SubmitVoiceRecoveryAsync">
+                            @(_voiceInFlight
+                                ? "Voice response in progress…"
+                                : "Respond by voice")
+                        </button>
+                    </div>
+                }
             </section>
         }
         else if (_view.CanReturnToRecovery)
@@ -186,6 +200,7 @@ else
     private bool _confirmingComplete;
     private bool _confirmingEnd;
     private bool _commandInFlight;
+    private bool _voiceInFlight;
 
     private double ProgressPercent => _view is null || _view.FocusTarget <= TimeSpan.Zero
         ? 0
@@ -215,6 +230,16 @@ else
         { MonitoringActive: true } => "health good",
         _ => "health paused"
     };
+
+    private string MicrophoneLabel => _voiceInFlight
+        ? "VOICE active"
+        : _view?.CanSubmitVoiceRecovery == true
+            ? "MIC ready"
+            : "MIC off";
+
+    private string MicrophoneClass => _voiceInFlight
+        ? "health warning"
+        : "health muted";
 
     protected override async Task OnParametersSetAsync()
     {
@@ -305,6 +330,20 @@ else
         if (_error is null && _view?.State != FocusSessionState.RecoveryCheckIn)
         {
             _recovery.Response = "";
+        }
+    }
+
+    private async Task SubmitVoiceRecoveryAsync()
+    {
+        _voiceInFlight = true;
+        try
+        {
+            await RunCommandAsync(token =>
+                SessionUi.SubmitVoiceRecoveryAsync(SessionId, token));
+        }
+        finally
+        {
+            _voiceInFlight = false;
         }
     }
 

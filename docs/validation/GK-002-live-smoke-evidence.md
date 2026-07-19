@@ -1,7 +1,8 @@
 # GK-002 live smoke evidence
 
 **Evidence date:** 2026-07-18
-**Branch:** `task/GK-006-hosted-perception`
+**Branches:** `task/GK-006-hosted-perception`,
+`task/GK-016-acceptance-soak`
 **Provider:** OpenAI API
 **Perception model:** `gpt-5.6-luna`
 **Prompt:** hosted `perception-v1` asset
@@ -13,16 +14,15 @@ bodies, base64 content, raw provider responses, and room imagery.
 
 ## Consent and prerequisites
 
-- Explicit consent to activate the webcam and send a captured still image to
-  OpenAI: **pending**.
+- Explicit consent to activate the webcam and send captured still images to
+  OpenAI through the running .NET host: **yes**, recorded on 2026-07-18.
 - Explicit consent to send three user-selected image-only test inputs to
   OpenAI: **yes**, recorded on 2026-07-18.
 - `OPENAI_API_KEY` available to the process: **yes** (presence-only check; no
   value was read or printed).
 - Python 3.11 available: **yes**, version 3.11.0.
 - The standard OpenAI endpoint may retain customer content in abuse-monitoring
-  logs for up to 30 days. A separate webcam consent remains required before
-  activating the camera.
+  logs for up to 30 days.
 
 ## Offline validation
 
@@ -49,20 +49,18 @@ hosted model accepts the request.
 
 ## Webcam preflight
 
-**Result:** Not run — explicit camera consent has not been supplied. The
-process-scoped API credential is now available.
+**Result:** Pass.
 
-Planned command:
+The consented camera check ran twice through the real .NET interactive-server
+UI in Hosted mode. Each explicitly initiated preflight capture opened the
+Windows camera, sent one selected still to `gpt-5.6-luna`, returned a
+schema-valid usable observation with exactly one visible person, and enabled
+session start. The camera continued at the configured snapshot cadence only
+during each live session and released on terminal completion.
 
-```powershell
-python capture.py --model gpt-5.6-luna --detail low
-```
-
-Pass requires the camera to open, a usable frame with exactly one visible person
-to satisfy the strict schema and preflight validation, explicit confirmation of
-the view, and clean camera release. The resulting local session directory must
-be deleted by the consenting operator or retained only under the documented
-local data policy; it must never be committed.
+The full Hosted evidence, including Reasoning, voice Recovery, transient
+technical failure, and resource cleanup, is recorded in
+[GK-016 acceptance and soak evidence](GK-016-acceptance-soak-evidence.md).
 
 ## Image-only Perception smoke
 
@@ -119,7 +117,8 @@ visible.
 - This is a connectivity and schema smoke, not a provider quality comparison.
 - One room view cannot establish robustness across lighting, occlusion, camera
   placement, skin tone, mobility aids, clothing, or different environments.
-- `detail: low` trades fine visual detail for latency and cost. GK-016 owns the
-  broader consented quality and soak evaluation.
+- `detail: low` trades fine visual detail for latency and cost. The GK-016 live
+  exercise demonstrated the intended intervention journey but is not a formal
+  quality evaluation.
 - Provider aliases can change behavior. Persist the provider-returned model and
   rerun evidence after a model or prompt change.

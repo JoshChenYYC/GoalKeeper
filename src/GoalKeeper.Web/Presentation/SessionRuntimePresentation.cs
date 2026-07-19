@@ -1,5 +1,6 @@
 using GoalKeeper.Application;
 using GoalKeeper.Application.Monitoring;
+using GoalKeeper.Application.Recovery;
 using GoalKeeper.Application.Runtime;
 using GoalKeeper.Domain;
 using Microsoft.Extensions.Options;
@@ -55,6 +56,7 @@ public sealed record LiveSessionPageView(
     bool CanCompleteGoal,
     bool CanEndEarly,
     bool CanSubmitRecovery,
+    bool CanSubmitVoiceRecovery,
     bool CanReturnToRecovery,
     bool IsTerminal,
     EndedEarlyReason? EndedEarlyReason);
@@ -71,13 +73,15 @@ public interface ISessionRuntimePresentation
     Task<LiveSessionPageView?> CompleteGoalAsync(Guid sessionId, CancellationToken cancellationToken = default);
     Task<LiveSessionPageView?> EndEarlyAsync(Guid sessionId, CancellationToken cancellationToken = default);
     Task<LiveSessionPageView?> SubmitRecoveryAsync(Guid sessionId, string response, CancellationToken cancellationToken = default);
+    Task<LiveSessionPageView?> SubmitVoiceRecoveryAsync(Guid sessionId, CancellationToken cancellationToken = default);
     Task<LiveSessionPageView?> ReturnToRecoveryAsync(Guid sessionId, CancellationToken cancellationToken = default);
 }
 
 public sealed class SessionRuntimePresentation(
     SessionRuntimeController controller,
     IGoalKeeperRepository repository,
-    IOptions<SessionRuntimeUiOptions> options) : ISessionRuntimePresentation, IDisposable
+    IOptions<SessionRuntimeUiOptions> options,
+    IVoiceRecoveryPort? voiceRecovery = null) : ISessionRuntimePresentation, IDisposable
 {
     private readonly SemaphoreSlim _commands = new(1, 1);
     private readonly SemaphoreSlim _preflightCommands = new(1, 1);
@@ -260,6 +264,20 @@ public sealed class SessionRuntimePresentation(
         return await LoadLiveAsync(sessionId, cancellationToken);
     }
 
+    public async Task<LiveSessionPageView?> SubmitVoiceRecoveryAsync(
+        Guid sessionId,
+        CancellationToken cancellationToken = default)
+    {
+        if (voiceRecovery is null)
+        {
+            throw new InvalidOperationException("Voice Recovery is not configured.");
+        }
+
+        await EnsureCurrentSessionAsync(sessionId, cancellationToken);
+        await controller.SubmitVoiceRecoveryAsync(cancellationToken);
+        return await LoadLiveAsync(sessionId, cancellationToken);
+    }
+
     public async Task<LiveSessionPageView?> ReturnToRecoveryAsync(
         Guid sessionId,
         CancellationToken cancellationToken = default)
@@ -333,6 +351,7 @@ public sealed class SessionRuntimePresentation(
             live.CanCompleteGoal,
             live.CanEndEarly,
             live.CanSubmitRecovery,
+            live.CanSubmitRecovery && voiceRecovery is not null,
             live.CanReturnToRecovery,
             live.IsTerminal,
             live.EndedEarlyReason);

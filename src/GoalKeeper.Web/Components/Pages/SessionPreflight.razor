@@ -63,7 +63,7 @@ else
 
         <aside class="preflight-rail" aria-label="Preflight controls">
             <div class="session-mini">
-                <span>@_view.TargetFocus.TotalMinutes:g min focus</span>
+                <span>@($"{_view.TargetFocus.TotalMinutes:g} min focus")</span>
                 <strong>@_view.GoalTitle</strong>
                 <small>@_view.ScheduledBreakCount scheduled break@(_view.ScheduledBreakCount == 1 ? "" : "s")</small>
             </div>
