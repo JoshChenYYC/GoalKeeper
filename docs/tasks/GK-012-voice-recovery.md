@@ -1,6 +1,8 @@
 # GK-012 — Natural voice Recovery Check-in
 
-**Status:** Blocked
+**Status:** In progress
+**Owner:** Codex `/root`
+**Branch:** `task/GK-012-voice-recovery`
 **Depends on:** GK-002, GK-010, GK-011
 **Suggested branch:** `task/GK-012-voice-recovery`
 

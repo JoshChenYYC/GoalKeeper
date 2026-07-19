@@ -342,6 +342,200 @@ public sealed class SessionRuntimeControllerTests
         }
     }
 
+    [Fact]
+    public async Task Voice_recovery_commits_the_captured_transcript_through_the_authoritative_validator()
+    {
+        const string transcript = "I will return to the goal now.";
+        var voiceRecovery = new ProposalVoiceRecoveryPort(
+            transcript,
+            RecoveryOutcome.Recommit);
+        await using var harness = await RuntimeHarness.CreateAsync(
+            ReasoningMode.ProfileOnly,
+            [
+                PerceptionFakeStep.Return(Success(AcceptableObservation())),
+                PerceptionFakeStep.Return(Success(BehaviorObservation()))
+            ],
+            [],
+            reasoningFactory: setup => new DeterministicReasoningFake(
+            [
+                ReasoningFakeStep.ListedIntervention(setup.Contract.Deviations[0].Id)
+            ]),
+            voiceRecovery: voiceRecovery);
+        await harness.StartAsync();
+        await EventuallyAsync(async () =>
+            (await harness.Controller.GetStatusAsync()).State ==
+            FocusSessionState.RecoveryCheckIn);
+
+        var before = await harness.Controller.GetStatusAsync();
+        var interventionId = (await harness.Repository.GetSessionAsync(
+            before.SessionId!.Value))!.Runtime.ActiveIntervention!.Id;
+        var persisted = await harness.Controller.SubmitVoiceRecoveryAsync();
+
+        Assert.Equal(FocusSessionState.RecoveryWindow, persisted!.State);
+        Assert.NotNull(voiceRecovery.Request);
+        Assert.Null(voiceRecovery.Request.CurrentTranscript);
+        Assert.NotEqual(
+            voiceRecovery.Request.Intervention.EvidenceSummary,
+            voiceRecovery.Request.Intervention.Rationale);
+        Assert.Contains(
+            "ordered observation",
+            voiceRecovery.Request.Intervention.EvidenceSummary);
+        var turn = Assert.Single(await harness.Repository.GetRecoveryTurnsAsync(
+            persisted.Id,
+            interventionId));
+        Assert.Equal(transcript, turn.Transcript);
+    }
+
+    [Fact]
+    public async Task Voice_recovery_rejects_a_transcript_mismatch_without_state_mutation()
+    {
+        var voiceRecovery = new ProposalVoiceRecoveryPort(
+            "This is the captured transcript.",
+            RecoveryOutcome.Recommit,
+            proposalTranscript: "This is not the captured transcript.");
+        await using var harness = await RuntimeHarness.CreateAsync(
+            ReasoningMode.ProfileOnly,
+            [
+                PerceptionFakeStep.Return(Success(AcceptableObservation())),
+                PerceptionFakeStep.Return(Success(BehaviorObservation()))
+            ],
+            [],
+            reasoningFactory: setup => new DeterministicReasoningFake(
+            [
+                ReasoningFakeStep.ListedIntervention(setup.Contract.Deviations[0].Id)
+            ]),
+            voiceRecovery: voiceRecovery);
+        await harness.StartAsync();
+        await EventuallyAsync(async () =>
+            (await harness.Controller.GetStatusAsync()).State ==
+            FocusSessionState.RecoveryCheckIn);
+
+        var before = await harness.Controller.GetStatusAsync();
+        var interventionId = (await harness.Repository.GetSessionAsync(
+            before.SessionId!.Value))!.Runtime.ActiveIntervention!.Id;
+        var persisted = await harness.Controller.SubmitVoiceRecoveryAsync();
+
+        Assert.Equal(before.Version, persisted!.Version);
+        Assert.Equal(FocusSessionState.RecoveryCheckIn, persisted.State);
+        Assert.Empty(await harness.Repository.GetRecoveryTurnsAsync(
+            persisted.Id,
+            interventionId));
+        Assert.Equal(
+            "recovery_invalid_response",
+            (await harness.Controller.GetStatusAsync()).TechnicalFailure);
+    }
+
+    [Fact]
+    public async Task Typed_voice_failure_does_not_mutate_the_recovery_session()
+    {
+        var voiceRecovery = new FailedVoiceRecoveryPort(
+            VoiceRecoveryStage.Transcription,
+            RecoveryFailureCategory.ProviderUnavailable);
+        await using var harness = await RuntimeHarness.CreateAsync(
+            ReasoningMode.ProfileOnly,
+            [
+                PerceptionFakeStep.Return(Success(AcceptableObservation())),
+                PerceptionFakeStep.Return(Success(BehaviorObservation()))
+            ],
+            [],
+            reasoningFactory: setup => new DeterministicReasoningFake(
+            [
+                ReasoningFakeStep.ListedIntervention(setup.Contract.Deviations[0].Id)
+            ]),
+            voiceRecovery: voiceRecovery);
+        await harness.StartAsync();
+        await EventuallyAsync(async () =>
+            (await harness.Controller.GetStatusAsync()).State ==
+            FocusSessionState.RecoveryCheckIn);
+
+        var before = await harness.Controller.GetStatusAsync();
+        var interventionId = (await harness.Repository.GetSessionAsync(
+            before.SessionId!.Value))!.Runtime.ActiveIntervention!.Id;
+        var persisted = await harness.Controller.SubmitVoiceRecoveryAsync();
+
+        Assert.Equal(before.Version, persisted!.Version);
+        Assert.Empty(await harness.Repository.GetRecoveryTurnsAsync(
+            persisted.Id,
+            interventionId));
+        Assert.Equal(
+            "recovery_providerunavailable",
+            (await harness.Controller.GetStatusAsync()).TechnicalFailure);
+    }
+
+    [Fact]
+    public async Task Voice_proposal_runs_outside_the_command_lock_and_stale_results_are_discarded()
+    {
+        var voiceRecovery = new BlockingVoiceRecoveryPort();
+        await using var harness = await RuntimeHarness.CreateAsync(
+            ReasoningMode.ProfileOnly,
+            [
+                PerceptionFakeStep.Return(Success(AcceptableObservation())),
+                PerceptionFakeStep.Return(Success(BehaviorObservation()))
+            ],
+            [],
+            reasoningFactory: setup => new DeterministicReasoningFake(
+            [
+                ReasoningFakeStep.ListedIntervention(setup.Contract.Deviations[0].Id)
+            ]),
+            voiceRecovery: voiceRecovery);
+        await harness.StartAsync();
+        await EventuallyAsync(async () =>
+            (await harness.Controller.GetStatusAsync()).State ==
+            FocusSessionState.RecoveryCheckIn);
+
+        var before = await harness.Controller.GetStatusAsync();
+        var interventionId = (await harness.Repository.GetSessionAsync(
+            before.SessionId!.Value))!.Runtime.ActiveIntervention!.Id;
+        var submission = harness.Controller.SubmitVoiceRecoveryAsync();
+        await voiceRecovery.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var ended = await harness.Controller.EndEarlyAsync();
+        var staleResult = await submission;
+
+        Assert.Equal(FocusSessionState.EndedEarly, ended!.State);
+        Assert.Null(staleResult);
+        Assert.True(voiceRecovery.WasCancelled);
+        Assert.Empty(await harness.Repository.GetRecoveryTurnsAsync(
+            ended.Id,
+            interventionId));
+    }
+
+    [Fact]
+    public async Task Concurrent_voice_submissions_never_activate_two_pipelines()
+    {
+        var voiceRecovery = new BlockingVoiceRecoveryPort();
+        await using var harness = await RuntimeHarness.CreateAsync(
+            ReasoningMode.ProfileOnly,
+            [
+                PerceptionFakeStep.Return(Success(AcceptableObservation())),
+                PerceptionFakeStep.Return(Success(BehaviorObservation()))
+            ],
+            [],
+            reasoningFactory: setup => new DeterministicReasoningFake(
+            [
+                ReasoningFakeStep.ListedIntervention(setup.Contract.Deviations[0].Id)
+            ]),
+            voiceRecovery: voiceRecovery);
+        await harness.StartAsync();
+        await EventuallyAsync(async () =>
+            (await harness.Controller.GetStatusAsync()).State ==
+            FocusSessionState.RecoveryCheckIn);
+
+        var first = harness.Controller.SubmitVoiceRecoveryAsync();
+        await voiceRecovery.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var second = harness.Controller.SubmitVoiceRecoveryAsync();
+        await Task.Delay(50);
+
+        Assert.Equal(1, voiceRecovery.CallCount);
+        voiceRecovery.Complete();
+        var persisted = await first;
+        await Assert.ThrowsAsync<DomainRuleViolationException>(
+            () => second);
+
+        Assert.Equal(FocusSessionState.RecoveryWindow, persisted!.State);
+        Assert.Equal(1, voiceRecovery.CallCount);
+    }
+
     private static MonitoringHealthEvent Health(
         Guid sessionId,
         MonitoringHealthEventKind kind,
@@ -484,7 +678,8 @@ public sealed class SessionRuntimeControllerTests
             IReadOnlyList<PerceptionFakeStep> perceptionSteps,
             IReadOnlyList<ReasoningFakeStep> reasoningSteps,
             Func<SessionSetupView, IReasoningPort>? reasoningFactory = null,
-            IRecoveryPort? recovery = null)
+            IRecoveryPort? recovery = null,
+            IVoiceRecoveryPort? voiceRecovery = null)
         {
             var root = Path.Combine(
                 Path.GetTempPath(),
@@ -527,7 +722,8 @@ public sealed class SessionRuntimeControllerTests
                     clock,
                     TimeSpan.FromMinutes(1)),
                 recovery ?? new DeterministicTextRecoveryFake([]),
-                clock);
+                clock,
+                voiceRecovery: voiceRecovery);
             observationSink.Target = controller;
             healthSink.Target = controller;
             return new(
@@ -811,6 +1007,112 @@ public sealed class SessionRuntimeControllerTests
                             RecoverySchemaVersions.V1,
                             TimeSpan.Zero,
                             Guid.NewGuid().ToString("N")))));
+        }
+    }
+
+    private sealed class ProposalVoiceRecoveryPort(
+        string capturedTranscript,
+        RecoveryOutcome outcome,
+        string? proposalTranscript = null) : IVoiceRecoveryPort
+    {
+        public RecoveryRequest? Request { get; private set; }
+
+        public Task<VoiceRecoveryPortResult> ProposeAsync(
+            RecoveryRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Request = request;
+            return Task.FromResult<VoiceRecoveryPortResult>(
+                new VoiceRecoveryProposalResponse(
+                    capturedTranscript,
+                    new(
+                        request.SessionId,
+                        request.SessionVersion,
+                        request.Intervention.InterventionId,
+                        request.NextTurnNumber,
+                        outcome,
+                        proposalTranscript ?? capturedTranscript,
+                        null,
+                        null,
+                        false,
+                        new(request.RequestedAtUtc, request.RequestedAtUtc),
+                        new(
+                            "deterministic-fake",
+                            "recovery-v1",
+                            "recovery-v1",
+                            RecoverySchemaVersions.V1,
+                            TimeSpan.Zero,
+                            Guid.NewGuid().ToString("N")))));
+        }
+    }
+
+    private sealed class FailedVoiceRecoveryPort(
+        VoiceRecoveryStage stage,
+        RecoveryFailureCategory category) : IVoiceRecoveryPort
+    {
+        public Task<VoiceRecoveryPortResult> ProposeAsync(
+            RecoveryRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            _ = request;
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult<VoiceRecoveryPortResult>(
+                new VoiceRecoveryFailureResponse(stage, category));
+        }
+    }
+
+    private sealed class BlockingVoiceRecoveryPort : IVoiceRecoveryPort
+    {
+        private readonly TaskCompletionSource<bool> _completion =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource<RecoveryRequest> Started { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int CallCount { get; private set; }
+
+        public bool WasCancelled { get; private set; }
+
+        public void Complete() => _completion.TrySetResult(true);
+
+        public async Task<VoiceRecoveryPortResult> ProposeAsync(
+            RecoveryRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            Started.TrySetResult(request);
+            try
+            {
+                await _completion.Task.WaitAsync(cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                WasCancelled = true;
+                throw;
+            }
+
+            const string transcript = "I will continue.";
+            return new VoiceRecoveryProposalResponse(
+                transcript,
+                new(
+                    request.SessionId,
+                    request.SessionVersion,
+                    request.Intervention.InterventionId,
+                    request.NextTurnNumber,
+                    RecoveryOutcome.Recommit,
+                    transcript,
+                    null,
+                    null,
+                    false,
+                    new(request.RequestedAtUtc, request.RequestedAtUtc),
+                    new(
+                        "deterministic-fake",
+                        "recovery-v1",
+                        "recovery-v1",
+                        RecoverySchemaVersions.V1,
+                        TimeSpan.Zero,
+                        Guid.NewGuid().ToString("N"))));
         }
     }
 }
