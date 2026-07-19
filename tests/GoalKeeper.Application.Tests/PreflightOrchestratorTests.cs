@@ -6,6 +6,29 @@ namespace GoalKeeper.Application.Tests;
 public sealed class PreflightOrchestratorTests
 {
     [Fact]
+    public async Task Successful_acquisition_reports_camera_provider_and_total_timings()
+    {
+        var providerLatency = TimeSpan.FromSeconds(1.25);
+        var preflight = new PreflightOrchestrator(
+            new PreflightFrameAcquirer(new RecordingCameraFactory()),
+            new DeterministicPerceptionFake(
+            [
+                PerceptionFakeStep.Return(new PerceptionSuccess(
+                    AcceptableObservation(),
+                    Metadata(providerLatency)))
+            ]));
+
+        var result = await preflight.AcquireAsync(
+            PreflightAcquisitionInput.Capture,
+            new CameraAcquisitionOptions());
+
+        Assert.NotNull(result.Timing);
+        Assert.Equal(providerLatency, result.Timing.ProviderValidation);
+        Assert.True(result.Timing.CameraAcquisition >= TimeSpan.Zero);
+        Assert.True(result.Timing.Total >= result.Timing.CameraAcquisition);
+    }
+
+    [Fact]
     public async Task Acceptable_candidate_requires_explicit_confirmation_and_supports_retry()
     {
         var cameras = new RecordingCameraFactory();
@@ -111,13 +134,13 @@ public sealed class PreflightOrchestratorTests
     private static PerceptionSuccess Success(Observation observation) =>
         new(observation, Metadata());
 
-    private static PerceptionMetadata Metadata() =>
+    private static PerceptionMetadata Metadata(TimeSpan? latency = null) =>
         new(
             "fake-provider",
             "fake-model",
             "perception-v1",
             ObservationSchemaVersions.V1,
-            TimeSpan.Zero,
+            latency ?? TimeSpan.Zero,
             Guid.NewGuid().ToString("N"));
 
     private static Observation AcceptableObservation() =>

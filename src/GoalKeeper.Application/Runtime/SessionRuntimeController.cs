@@ -132,7 +132,8 @@ public sealed class SessionRuntimeController(
                 result.Status,
                 result.Rejection,
                 result.CanRetry,
-                preview);
+                preview,
+                result.Timing);
         }
         finally
         {
@@ -169,7 +170,8 @@ public sealed class SessionRuntimeController(
                 result.Status,
                 result.Rejection,
                 result.CanRetry,
-                null);
+                null,
+                result.Timing);
         }
         finally
         {

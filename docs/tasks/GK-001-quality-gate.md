@@ -14,7 +14,7 @@ A fresh checkout has one documented, automated quality gate for the retained Pyt
 
 - `.github/workflows/`
 - Repository-level build/test configuration and developer scripts
-- Test-running sections of `README.txt`
+- Test-running sections of `README.md`
 - Dependency lock or environment documentation
 
 Do not change product behavior, agent prompts, or domain rules.

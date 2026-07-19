@@ -96,6 +96,13 @@
     color: #334d5a;
 }
 
+.alert.diagnostic {
+    border-color: #b9d5ca;
+    background: #f1f8f5;
+    color: #285244;
+    font-variant-numeric: tabular-nums;
+}
+
 .alert.error {
     border-color: #e6bcbc;
     background: #fff4f3;

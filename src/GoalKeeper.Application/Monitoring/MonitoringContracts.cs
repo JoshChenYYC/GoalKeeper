@@ -122,11 +122,35 @@ public enum PreflightRejection
     UserRejected
 }
 
+public sealed record PreflightTiming
+{
+    public PreflightTiming(
+        TimeSpan cameraAcquisition,
+        TimeSpan providerValidation,
+        TimeSpan total)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(cameraAcquisition, TimeSpan.Zero);
+        ArgumentOutOfRangeException.ThrowIfLessThan(providerValidation, TimeSpan.Zero);
+        ArgumentOutOfRangeException.ThrowIfLessThan(total, TimeSpan.Zero);
+
+        CameraAcquisition = cameraAcquisition;
+        ProviderValidation = providerValidation;
+        Total = total;
+    }
+
+    public TimeSpan CameraAcquisition { get; }
+
+    public TimeSpan ProviderValidation { get; }
+
+    public TimeSpan Total { get; }
+}
+
 public sealed record PreflightResult(
     PreflightStatus Status,
     CapturedJpegFrame? Frame,
     Observation? Observation,
-    PreflightRejection Rejection)
+    PreflightRejection Rejection,
+    PreflightTiming? Timing = null)
 {
     public bool CanRetry =>
         Status is PreflightStatus.Rejected or PreflightStatus.TechnicalFailure;
