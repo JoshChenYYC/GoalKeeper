@@ -257,7 +257,8 @@ public sealed class SessionRuntimePresentationTests
         Assert.Equal(FocusSessionState.ScheduledBreak, live.State);
         Assert.Equal(TimeSpan.FromMinutes(2), live.FocusElapsed);
         Assert.Equal(TimeSpan.FromMinutes(5), live.StateCountdown);
-        Assert.Null(live.RecoveryPrompt);
+        Assert.Null(live.RecoveryAccountabilityMessage);
+        Assert.Null(live.RecoveryEvidenceContext);
         Assert.False(live.CanCompleteGoal);
         Assert.False(live.CanSubmitRecovery);
         Assert.False(live.CanReturnToRecovery);
@@ -293,7 +294,8 @@ public sealed class SessionRuntimePresentationTests
         Assert.NotNull(live);
         Assert.Equal(FocusSessionState.MonitoringUnavailable, live.State);
         Assert.NotNull(live.StateCountdown);
-        Assert.Null(live.RecoveryPrompt);
+        Assert.Null(live.RecoveryAccountabilityMessage);
+        Assert.Null(live.RecoveryEvidenceContext);
         Assert.False(live.CanCompleteGoal);
         Assert.False(live.CanSubmitRecovery);
         Assert.False(live.CanReturnToRecovery);
@@ -374,7 +376,8 @@ public sealed class SessionRuntimePresentationTests
         Assert.False(checkIn.CanReturnToRecovery);
         Assert.True(checkIn.CanEndEarly);
         Assert.Null(checkIn.StateCountdown);
-        Assert.NotNull(checkIn.RecoveryPrompt);
+        Assert.NotNull(checkIn.RecoveryAccountabilityMessage);
+        Assert.NotNull(checkIn.RecoveryEvidenceContext);
 
         var next = outcome == RecoveryOutcome.NoResponse
             ? await SubmitNoResponseAsync(harness, sessionId)

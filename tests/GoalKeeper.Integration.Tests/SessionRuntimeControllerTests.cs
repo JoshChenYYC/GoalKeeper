@@ -577,9 +577,9 @@ public sealed class SessionRuntimeControllerTests
             category,
             new(
                 "deterministic-fake",
-                "reasoning-v1",
-                "reasoning-v1",
-                ReasoningSchemaVersions.V1,
+                "reasoning-v2",
+                "reasoning-v2",
+                ReasoningSchemaVersions.V2,
                 TimeSpan.Zero,
                 Guid.NewGuid().ToString("N")));
 

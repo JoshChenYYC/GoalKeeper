@@ -35,6 +35,8 @@ internal static class RecoveryConversationWireContracts
                         request.Intervention.DeviationDescription,
                     ["evidence_summary"] = request.Intervention.EvidenceSummary,
                     ["rationale"] = request.Intervention.Rationale,
+                    ["accountability_message"] =
+                        AccountabilityMessageFactory.Resolve(request),
                     ["admitted_at_utc"] =
                         request.Intervention.AdmittedAtUtc.ToString("O")
                 },

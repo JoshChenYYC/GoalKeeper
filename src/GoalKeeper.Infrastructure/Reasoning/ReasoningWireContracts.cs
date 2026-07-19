@@ -34,7 +34,7 @@ internal static class ReasoningWireContracts
         {
             var wire = new
             {
-                schema_version = ReasoningSchemaVersions.V1,
+                schema_version = ReasoningSchemaVersions.V2,
                 session_id = request.SessionId,
                 session_version = request.SessionVersion,
                 current_state = request.CurrentState,
@@ -281,7 +281,8 @@ internal sealed record ReasoningInterventionWire(
     Guid LatestObservationId,
     IReadOnlyList<Guid>? KeyObservationIds,
     IReadOnlyList<Guid>? ContradictoryObservationIds,
-    string? Rationale);
+    string? Rationale,
+    string? AccountabilityMessage);
 
 internal sealed record ReasoningEpisodeWire(
     string? Key,

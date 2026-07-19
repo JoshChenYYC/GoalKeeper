@@ -39,12 +39,13 @@ public sealed class VoiceRecoveryContractTests
         var prompt = RecoveryOpeningPrompt.Create(request);
 
         Assert.StartsWith("This is an AI-generated voice.", prompt);
-        Assert.Contains("may have noticed", prompt);
-        Assert.Contains("but this is uncertain", prompt);
+        Assert.Contains(request.Intervention.AccountabilityMessage!, prompt);
+        Assert.Contains("limited camera observations", prompt);
+        Assert.Contains("This interpretation may be wrong", prompt);
         Assert.Contains("about 2 minutes", prompt);
         Assert.Contains(request.Intervention.DeviationDescription, prompt);
         Assert.Contains(request.Intervention.EvidenceSummary, prompt);
-        Assert.Contains(request.Intervention.Rationale, prompt);
+        Assert.DoesNotContain(request.Intervention.Rationale, prompt);
         Assert.EndsWith("What happened?", prompt);
         Assert.True(prompt.Length <= RecoveryLimits.MaximumResponseLength);
     }

@@ -2,8 +2,9 @@
 @inject SetupWorkflow Workflow
 @inject NavigationManager Navigation
 
-<PageTitle>Session Setup · GoalKeeper</PageTitle>
-<h1>Session Setup</h1>
+<PageTitle>Set up this focus session · GoalKeeper</PageTitle>
+<h1>Set up this focus session</h1>
+<p class="lede">Choose the boundaries for this one session. GoalKeeper will lock an exact snapshot before the camera check.</p>
 
 @if (_form is null && _error is null)
 {
@@ -12,11 +13,11 @@
 else if (_form is null)
 {
     <section class="empty-state">
-        <h2>Session setup isn’t ready.</h2>
+        <h2>This focus session isn’t ready.</h2>
         <p>@_error</p>
         <div class="actions">
-            <a class="button" href="/profile">Create Focus profile</a>
-            <a class="button secondary" href="/">Return to goals</a>
+            <a class="button" href="@RulesHref">Define accountability rules</a>
+            <a class="button secondary" href="@($"/?goal={GoalId:D}")">Return Home</a>
         </div>
     </section>
 }
@@ -27,25 +28,29 @@ else
         <EditForm Model="_form" OnValidSubmit="ConfirmAsync">
             <DataAnnotationsValidator />
             <ValidationSummary />
-            <label>Target focus (minutes) <InputNumber @bind-Value="_form.TargetMinutes" /></label>
-            <label>Scheduled Breaks <span class="hint">one offset:duration pair per line, in minutes</span>
+            <label>Focus time (minutes) <InputNumber @bind-Value="_form.TargetMinutes" /></label>
+            <label>Planned breaks <span class="hint">one offset:duration pair per line, in minutes</span>
                 <InputTextArea rows="4" @bind-Value="_form.Breaks" />
             </label>
-            <label>Reasoning mode
+            <label>What may GoalKeeper call out?
                 <InputSelect @bind-Value="_form.ReasoningMode">
-                    @foreach (var value in Enum.GetValues<ReasoningMode>()) { <option value="@value">@value</option> }
+                    <option value="@ReasoningMode.ProfileOnly">Only my accountability rules</option>
+                    <option value="@ReasoningMode.Exploratory">Any clearly off-track visible behavior</option>
                 </InputSelect>
             </label>
-            <label>Sensitivity
+            <label>How quickly should GoalKeeper step in?
                 <InputSelect @bind-Value="_form.Sensitivity">
-                    @foreach (var value in Enum.GetValues<Sensitivity>()) { <option value="@value">@value</option> }
+                    <option value="@Sensitivity.Strict">Sooner</option>
+                    <option value="@Sensitivity.Balanced">Balanced</option>
+                    <option value="@Sensitivity.Relaxed">Only with stronger evidence</option>
                 </InputSelect>
             </label>
             <div class="snapshot">
+                <span class="eyebrow">Accountability rules snapshot</span>
                 <strong>@_draft.DeviationProfileName</strong>
                 <ul>@foreach (var deviation in _draft.Deviations) { <li>@deviation.Description</li> }</ul>
             </div>
-            <button type="submit">Confirm immutable contract</button>
+            <button type="submit">Lock session plan and continue</button>
         </EditForm>
         @if (_error is not null) { <p class="error">@_error</p> }
     </section>
@@ -56,6 +61,8 @@ else
     private SessionContractDraft? _draft;
     private SetupForm? _form;
     private string? _error;
+    private string RulesHref =>
+        $"/profile?returnTo={Uri.EscapeDataString($"/?goal={GoalId:D}&guide=true")}";
 
     protected override async Task OnParametersSetAsync()
     {

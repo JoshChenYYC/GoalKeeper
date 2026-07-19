@@ -22,12 +22,12 @@ public sealed class FakeDrivenJourneyAcceptanceTests
     {
         await using var journey = await AcceptanceJourney.StartAsync();
 
-        Assert.Contains("<h1>Goals</h1>", await journey.HtmlAsync("/"));
+        Assert.Contains(">Home</h1>", await journey.HtmlAsync("/"));
         Assert.Contains(
-            "<h1>Deviation Profile</h1>",
+            "<h1>Accountability rules</h1>",
             await journey.HtmlAsync("/profile"));
         Assert.Contains(
-            "<h1>Session Setup</h1>",
+            "<h1>Set up this focus session</h1>",
             await journey.HtmlAsync($"/sessions/setup/{journey.GoalId}"));
         var readyHtml = await journey.HtmlAsync(
             $"/sessions/{journey.SetupId}/ready");
@@ -51,9 +51,17 @@ public sealed class FakeDrivenJourneyAcceptanceTests
         await journey.StartSessionAsync();
         await journey.WaitForStateAsync(FocusSessionState.RecoveryCheckIn);
 
+        var recoveryView = await journey.Presentation.GetLiveAsync(
+            journey.SessionId);
         var recoveryHtml = await journey.HtmlAsync(
             $"/sessions/{journey.SessionId}/live");
         Assert.Contains("Recovery check-in", recoveryHtml);
+        Assert.Contains("Reality check", recoveryHtml);
+        Assert.Contains("Why GoalKeeper interrupted", recoveryHtml);
+        Assert.Contains(
+            System.Text.Encodings.Web.HtmlEncoder.Default.Encode(
+                recoveryView!.RecoveryAccountabilityMessage!),
+            recoveryHtml);
         Assert.Contains("What happened?", recoveryHtml);
         Assert.Contains("MIC off", recoveryHtml);
         Assert.DoesNotContain("Respond by voice", recoveryHtml);
@@ -70,6 +78,11 @@ public sealed class FakeDrivenJourneyAcceptanceTests
         var fulfilled = await journey.Presentation.CompleteGoalAsync(
             journey.SessionId);
         Assert.Equal(FocusSessionState.Fulfilled, fulfilled!.State);
+        var completedHome = await journey.HtmlAsync("/");
+        Assert.Contains("View history", completedHome);
+        Assert.DoesNotContain(
+            $"/sessions/setup/{journey.GoalId}",
+            completedHome);
         var terminalHtml = await journey.HtmlAsync(
             $"/sessions/{journey.SessionId}/live");
         Assert.Contains("Session fulfilled", terminalHtml);
@@ -141,8 +154,8 @@ public sealed class FakeDrivenJourneyAcceptanceTests
         var optionalReviewHtml = await journey.HtmlAsync(
             $"/sessions/{journey.SessionId}/review");
         Assert.Contains("How did this session go?", optionalReviewHtml);
-        Assert.Contains("Skip and return to goals", optionalReviewHtml);
-        Assert.Contains("<h1>Goals</h1>", await journey.HtmlAsync("/"));
+        Assert.Contains("Skip and return Home", optionalReviewHtml);
+        Assert.Contains(">Home</h1>", await journey.HtmlAsync("/"));
 
         var historyHtml = await journey.HtmlAsync(
             $"/goals/{journey.GoalId}/history");

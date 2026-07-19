@@ -34,8 +34,8 @@ public sealed class WebHostTests
             var html = await response.Content.ReadAsStringAsync();
 
             Assert.True(response.IsSuccessStatusCode, html);
-            Assert.Contains("<h1>Goals</h1>", html);
-            Assert.Contains("Focus profile", html);
+            Assert.Contains(">Home</h1>", html);
+            Assert.Contains("Accountability rules", html);
             Assert.True(File.Exists(Path.Combine(dataRoot, "goalkeeper.db")));
         }
         finally
@@ -223,13 +223,13 @@ public sealed class WebHostTests
 
             Assert.True(liveResponse.IsSuccessStatusCode, liveHtml);
             Assert.Contains("This live session isn’t connected.", liveHtml);
-            Assert.Contains("Return to goals", liveHtml);
+            Assert.Contains("Return Home", liveHtml);
             Assert.True(preflightResponse.IsSuccessStatusCode, preflightHtml);
             Assert.Contains("The camera check could not open.", preflightHtml);
             Assert.Contains("Try again", preflightHtml);
             Assert.True(readyResponse.IsSuccessStatusCode, readyHtml);
             Assert.Contains("This setup is no longer ready.", readyHtml);
-            Assert.Contains("Return to goals", readyHtml);
+            Assert.Contains("Return Home", readyHtml);
         }
         finally
         {
@@ -263,10 +263,10 @@ public sealed class WebHostTests
 
             Assert.True(reviewResponse.IsSuccessStatusCode, reviewHtml);
             Assert.Contains("This Focus Session could not be reviewed.", reviewHtml);
-            Assert.Contains("Return to goals", reviewHtml);
+            Assert.Contains("Return Home", reviewHtml);
             Assert.True(historyResponse.IsSuccessStatusCode, historyHtml);
             Assert.Contains("This Goal could not be found.", historyHtml);
-            Assert.Contains("Return to goals", historyHtml);
+            Assert.Contains("Return Home", historyHtml);
         }
         finally
         {
@@ -300,12 +300,12 @@ public sealed class WebHostTests
             var html = await response.Content.ReadAsStringAsync();
 
             Assert.True(response.IsSuccessStatusCode, html);
-            Assert.Contains("Session setup isn’t ready.", html);
+            Assert.Contains("This focus session isn’t ready.", html);
             Assert.Contains(
-                "Create a Deviation Profile before preparing a session.",
+                "Define accountability rules before preparing a session.",
                 html);
-            Assert.Contains("Create Focus profile", html);
-            Assert.Contains("Return to goals", html);
+            Assert.Contains("Define accountability rules", html);
+            Assert.Contains("Return Home", html);
         }
         finally
         {

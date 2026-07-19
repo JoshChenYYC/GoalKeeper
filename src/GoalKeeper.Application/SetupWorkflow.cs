@@ -38,11 +38,11 @@ public sealed class SetupWorkflow(IGoalKeeperRepository repository, IClock clock
     {
         if (deviations.Count == 0)
         {
-            throw new DomainRuleViolationException("A Deviation Profile requires at least one Deviation.");
+            throw new DomainRuleViolationException("Accountability rules require at least one behavior to call out.");
         }
 
-        var cleaned = deviations.Select(x => x with { Description = Required(x.Description, "Deviation") }).ToArray();
-        return repository.SaveProfileAsync(Required(name, "Profile name"), cleaned, clock.UtcNow, cancellationToken);
+        var cleaned = deviations.Select(x => x with { Description = Required(x.Description, "Behavior") }).ToArray();
+        return repository.SaveProfileAsync(Required(name, "Rules name"), cleaned, clock.UtcNow, cancellationToken);
     }
 
     public async Task<SessionContractDraft> PrepareAsync(Guid goalId, CancellationToken cancellationToken = default)
@@ -64,7 +64,7 @@ public sealed class SetupWorkflow(IGoalKeeperRepository repository, IClock clock
         }
 
         var profile = await repository.GetProfileAsync(cancellationToken)
-            ?? throw new DomainRuleViolationException("Create a Deviation Profile before preparing a session.");
+            ?? throw new DomainRuleViolationException("Define accountability rules before preparing a session.");
         return new(
             goal.Id, goal.Title, goal.Description, TimeSpan.FromMinutes(25), [], profile.Id, profile.Name,
             profile.Deviations.ToArray(), ReasoningMode.ProfileOnly, Sensitivity.Balanced);

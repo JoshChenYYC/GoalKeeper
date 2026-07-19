@@ -93,6 +93,10 @@ public sealed class DurableReasoningTests : IAsyncLifetime
         Assert.Equal(FocusSessionState.RecoveryCheckIn, stored!.State);
         Assert.Equal(2, stored.Version);
         Assert.NotNull(stored.Runtime.ActiveIntervention);
+        var accountabilityMessage =
+            stored.Runtime.ActiveIntervention!.Evaluation.AccountabilityMessage;
+        Assert.NotNull(accountabilityMessage);
+        Assert.InRange(accountabilityMessage.Length, 1, 280);
         Assert.NotNull(stored.Runtime.Timer.PendingDispute);
         Assert.Equal(result.EvaluationId, stored.Runtime.ActiveIntervention!.Evaluation.Id);
 
@@ -101,6 +105,10 @@ public sealed class DurableReasoningTests : IAsyncLifetime
         var episode = await db.EvidenceEpisodes.SingleAsync();
         var intervention = await db.Interventions.SingleAsync();
         Assert.True(evaluation.Accepted);
+        Assert.True(
+            System.Text.RegularExpressions.Regex.Count(
+                evaluation.DocumentJson,
+                "accountabilityMessage") == 1);
         Assert.Equal(evaluation.Id, intervention.EvaluationId);
         Assert.Equal(episode.Id, intervention.EvidenceEpisodeId);
         Assert.Equal(stored.Runtime.ActiveIntervention.Id, intervention.Id);
@@ -525,7 +533,8 @@ public sealed class DurableReasoningTests : IAsyncLifetime
                     latest,
                     keys,
                     contradictions,
-                    "Visible evidence may warrant a check-in."),
+                    "Visible evidence may warrant a check-in.",
+                    "The phone is getting plenty of attention. Put it down and get back to the Goal."),
                 []),
             Metadata());
 
@@ -533,8 +542,8 @@ public sealed class DurableReasoningTests : IAsyncLifetime
         new(
             "test",
             "deterministic",
-            "reasoning-v1",
-            ReasoningSchemaVersions.V1,
+            "reasoning-v2",
+            ReasoningSchemaVersions.V2,
             TimeSpan.Zero,
             Guid.NewGuid().ToString("D"));
 

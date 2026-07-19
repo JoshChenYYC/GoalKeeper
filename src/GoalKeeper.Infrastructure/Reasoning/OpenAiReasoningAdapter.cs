@@ -245,7 +245,7 @@ public sealed class OpenAiReasoningAdapter : IReasoningPort
                 ["format"] = new JsonObject
                 {
                     ["type"] = "json_schema",
-                    ["name"] = "reasoning_proposal_v1",
+                    ["name"] = "reasoning_proposal_v2",
                     ["strict"] = true,
                     ["schema"] = ReasoningPromptAssets.CreateSchema(
                         requestContext.SessionId,
@@ -432,7 +432,7 @@ public sealed class OpenAiReasoningAdapter : IReasoningPort
             ProviderName,
             model,
             ReasoningPromptAssets.PromptVersion,
-            ReasoningSchemaVersions.V1,
+            ReasoningSchemaVersions.V2,
             Stopwatch.GetElapsedTime(started),
             requestId);
 

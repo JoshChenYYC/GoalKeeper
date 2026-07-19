@@ -119,6 +119,8 @@ public sealed record ReasoningEvaluation(
     string? Rationale,
     DateTimeOffset EvaluatedAtUtc)
 {
+    public string? AccountabilityMessage { get; init; }
+
     public static ReasoningEvaluation Continue(Guid sessionId, long sessionVersion, IClock clock) =>
         Create(
             Guid.NewGuid(),
@@ -144,6 +146,23 @@ public sealed record ReasoningEvaluation(
             rationale,
             clock.UtcNow);
 
+    public static ReasoningEvaluation ProposeIntervention(
+        Guid sessionId,
+        long sessionVersion,
+        EvidenceEpisode episode,
+        string rationale,
+        string accountabilityMessage,
+        IClock clock) =>
+        Create(
+            Guid.NewGuid(),
+            sessionId,
+            sessionVersion,
+            ReasoningDecision.BeginRecoveryCheckIn,
+            episode,
+            rationale,
+            clock.UtcNow,
+            accountabilityMessage);
+
     internal static ReasoningEvaluation Rehydrate(
         Guid id,
         Guid sessionId,
@@ -151,8 +170,17 @@ public sealed record ReasoningEvaluation(
         ReasoningDecision decision,
         EvidenceEpisode? evidenceEpisode,
         string? rationale,
-        DateTimeOffset evaluatedAtUtc) =>
-        Create(id, sessionId, sessionVersion, decision, evidenceEpisode, rationale, evaluatedAtUtc);
+        DateTimeOffset evaluatedAtUtc,
+        string? accountabilityMessage = null) =>
+        Create(
+            id,
+            sessionId,
+            sessionVersion,
+            decision,
+            evidenceEpisode,
+            rationale,
+            evaluatedAtUtc,
+            accountabilityMessage);
 
     private static ReasoningEvaluation Create(
         Guid id,
@@ -161,7 +189,8 @@ public sealed record ReasoningEvaluation(
         ReasoningDecision decision,
         EvidenceEpisode? evidenceEpisode,
         string? rationale,
-        DateTimeOffset evaluatedAtUtc)
+        DateTimeOffset evaluatedAtUtc,
+        string? accountabilityMessage = null)
     {
         Guard.Identifier(id, nameof(id));
         Guard.Identifier(sessionId, nameof(sessionId));
@@ -173,7 +202,9 @@ public sealed record ReasoningEvaluation(
 
         if (decision == ReasoningDecision.ContinueObserving)
         {
-            if (evidenceEpisode is not null || !string.IsNullOrWhiteSpace(rationale))
+            if (evidenceEpisode is not null ||
+                !string.IsNullOrWhiteSpace(rationale) ||
+                !string.IsNullOrWhiteSpace(accountabilityMessage))
             {
                 throw new DomainRuleViolationException("Continue-observing cannot contain Intervention evidence.");
             }
@@ -185,9 +216,24 @@ public sealed record ReasoningEvaluation(
         else
         {
             rationale = Guard.Required(rationale, nameof(rationale));
+            if (accountabilityMessage is not null)
+            {
+                accountabilityMessage = Guard.Required(
+                    accountabilityMessage,
+                    nameof(accountabilityMessage));
+                if (accountabilityMessage.Length > 280 ||
+                    accountabilityMessage.Any(char.IsControl))
+                {
+                    throw new DomainRuleViolationException(
+                        "The accountability message must be at most 280 characters and contain no control characters.");
+                }
+            }
         }
 
-        return new(id, sessionId, sessionVersion, decision, evidenceEpisode, rationale, evaluatedAtUtc);
+        return new(id, sessionId, sessionVersion, decision, evidenceEpisode, rationale, evaluatedAtUtc)
+        {
+            AccountabilityMessage = accountabilityMessage
+        };
     }
 }
 

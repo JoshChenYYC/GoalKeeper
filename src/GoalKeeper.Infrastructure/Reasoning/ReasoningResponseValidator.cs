@@ -45,7 +45,7 @@ internal static class ReasoningResponseValidator
         }
 
         if (wire is null ||
-            wire.SchemaVersion != ReasoningSchemaVersions.V1 ||
+            wire.SchemaVersion != ReasoningSchemaVersions.V2 ||
             wire.SessionId != request.SessionId ||
             wire.SessionVersion != request.SessionVersion ||
             wire.CurrentState != request.CurrentState ||
@@ -99,6 +99,8 @@ internal static class ReasoningResponseValidator
             wire.ContradictoryObservationIds.Count >
             EvidenceEpisodePolicy.DefaultMaximumContradictoryObservations ||
             !SafeText(wire.Rationale, ReasoningLimits.MaximumRationaleLength) ||
+            !AccountabilityMessagePolicy.IsAcceptable(
+                wire.AccountabilityMessage) ||
             !SafeOptionalText(
                 wire.UnlistedDescription,
                 ReasoningLimits.MaximumTextLength))
@@ -113,7 +115,8 @@ internal static class ReasoningResponseValidator
             wire.LatestObservationId,
             wire.KeyObservationIds.ToArray(),
             wire.ContradictoryObservationIds.ToArray(),
-            wire.Rationale!);
+            wire.Rationale!,
+            wire.AccountabilityMessage!);
         return true;
     }
 

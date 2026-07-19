@@ -281,8 +281,8 @@ public sealed class UnconfiguredReasoningPort : IReasoningPort
                 new(
                     "unconfigured",
                     "none",
-                    "reasoning-v1",
-                    ReasoningSchemaVersions.V1,
+                    "reasoning-v2",
+                    ReasoningSchemaVersions.V2,
                     TimeSpan.Zero,
                     $"unconfigured-{Guid.NewGuid():N}")));
     }

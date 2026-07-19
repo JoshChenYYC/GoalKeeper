@@ -148,8 +148,18 @@ public static class RecoveryProposalValidator
         ValidateOptionalSafeText(
             proposal.AssistantMessage,
             "$.assistant_message",
-            RecoveryLimits.MaximumResponseLength,
+            RecoveryLimits.MaximumAccountabilityMessageLength,
             issues);
+
+        if (proposal.AssistantMessage is { } assistantMessage &&
+            !GoalKeeper.Application.Reasoning.AccountabilityMessagePolicy.IsAcceptable(
+                assistantMessage))
+        {
+            issues.Add(new(
+                "$.assistant_message",
+                RecoveryValidationErrorCode.InvalidValue,
+                "The assistant response violates the accountability-message safety policy."));
+        }
 
         if (!string.Equals(proposal.Transcript, request.CurrentTranscript, StringComparison.Ordinal))
         {

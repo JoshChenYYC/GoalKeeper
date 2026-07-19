@@ -14,7 +14,7 @@ else if (_view is null)
         <p class="eyebrow">Session unavailable</p>
         <h1>This live session isn’t connected.</h1>
         <p>@_error</p>
-        <a class="button" href="/">Return to goals</a>
+        <a class="button" href="/">Return Home</a>
     </section>
 }
 else if (_view.IsTerminal)
@@ -30,7 +30,7 @@ else if (_view.IsTerminal)
         </div>
         <div class="actions centered">
             <a class="button" href="@($"/sessions/{SessionId}/review")">Optional session review</a>
-            <a class="button secondary" href="/">Return to goals</a>
+            <a class="button secondary" href="/">Return Home</a>
         </div>
     </section>
 }
@@ -108,8 +108,12 @@ else
         {
             <section class="recovery-panel" aria-labelledby="recovery-title">
                 <span class="recovery-kicker">Timer paused · Private check-in</span>
-                <h2 id="recovery-title">Let’s get the context right.</h2>
-                <p>@_view.RecoveryPrompt</p>
+                <h2 id="recovery-title">Reality check</h2>
+                <p class="accountability-message">@_view.RecoveryAccountabilityMessage</p>
+                <details class="recovery-evidence">
+                    <summary>Why GoalKeeper interrupted</summary>
+                    <p>@_view.RecoveryEvidenceContext</p>
+                </details>
                 <EditForm Model="_recovery" OnValidSubmit="SubmitRecoveryAsync">
                     <DataAnnotationsValidator />
                     <ValidationSummary />

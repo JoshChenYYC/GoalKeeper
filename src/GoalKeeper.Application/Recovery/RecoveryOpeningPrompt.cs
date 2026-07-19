@@ -4,7 +4,6 @@ public static class RecoveryOpeningPrompt
 {
     private const int MaximumDeviationDescriptionLength = 320;
     private const int MaximumEvidenceSummaryLength = 480;
-    private const int MaximumRationaleLength = 480;
 
     public static string Create(RecoveryRequest request)
     {
@@ -17,20 +16,17 @@ public static class RecoveryOpeningPrompt
         var evidence = Bounded(
             request.Intervention.EvidenceSummary,
             MaximumEvidenceSummaryLength);
-        var rationale = Bounded(
-            request.Intervention.Rationale,
-            MaximumRationaleLength);
+        var accountabilityMessage = AccountabilityMessageFactory.Resolve(request);
 
         return string.Concat(
             "This is an AI-generated voice. ",
-            "GoalKeeper may have noticed a pattern related to ",
-            deviation,
-            " for ",
+            accountabilityMessage,
+            " GoalKeeper based this interruption on ",
             duration,
-            ", but this is uncertain. Evidence summary: ",
+            " of limited camera observations associated with ",
+            deviation,
+            ". This interpretation may be wrong. Evidence summary: ",
             evidence,
-            " Why it may conflict with the session: ",
-            rationale,
             " What happened?");
     }
 

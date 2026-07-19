@@ -1,0 +1,165 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "const": 2
+    },
+    "session_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "session_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "current_state": {
+      "type": "string",
+      "enum": [
+        "focusing",
+        "scheduled_break",
+        "recovery_check_in",
+        "recovery_window",
+        "awaiting_response",
+        "monitoring_unavailable",
+        "fulfilled",
+        "ended_early"
+      ]
+    },
+    "trigger_observation_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "decision": {
+      "type": "string",
+      "enum": ["continue_observing", "begin_recovery_check_in"]
+    },
+    "intervention": {
+      "anyOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "listed_deviation_id": {
+              "type": ["string", "null"],
+              "format": "uuid"
+            },
+            "unlisted_description": {
+              "type": ["string", "null"],
+              "pattern": "^.{1,320}$"
+            },
+            "first_observation_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "latest_observation_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "key_observation_ids": {
+              "type": "array",
+              "items": { "type": "string", "format": "uuid" },
+              "minItems": 1,
+              "maxItems": 4
+            },
+            "contradictory_observation_ids": {
+              "type": "array",
+              "items": { "type": "string", "format": "uuid" },
+              "maxItems": 4
+            },
+            "rationale": {
+              "type": "string",
+              "pattern": "^.{1,640}$"
+            },
+            "accountability_message": {
+              "type": "string",
+              "pattern": "^.{1,280}$"
+            }
+          },
+          "required": [
+            "listed_deviation_id",
+            "unlisted_description",
+            "first_observation_id",
+            "latest_observation_id",
+            "key_observation_ids",
+            "contradictory_observation_ids",
+            "rationale",
+            "accountability_message"
+          ]
+        }
+      ]
+    },
+    "episode_updates": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^.{1,320}$"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "historical"]
+          },
+          "listed_deviation_id": {
+            "type": ["string", "null"],
+            "format": "uuid"
+          },
+          "unlisted_description": {
+            "type": ["string", "null"],
+            "pattern": "^.{1,320}$"
+          },
+          "first_observation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "latest_observation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "key_observation_ids": {
+            "type": "array",
+            "items": { "type": "string", "format": "uuid" },
+            "minItems": 1,
+            "maxItems": 4
+          },
+          "contradictory_observation_ids": {
+            "type": "array",
+            "items": { "type": "string", "format": "uuid" },
+            "maxItems": 4
+          },
+          "summary": {
+            "type": "string",
+            "pattern": "^.{1,320}$"
+          }
+        },
+        "required": [
+          "key",
+          "status",
+          "listed_deviation_id",
+          "unlisted_description",
+          "first_observation_id",
+          "latest_observation_id",
+          "key_observation_ids",
+          "contradictory_observation_ids",
+          "summary"
+        ]
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "session_id",
+    "session_version",
+    "current_state",
+    "trigger_observation_id",
+    "decision",
+    "intervention",
+    "episode_updates"
+  ]
+}

@@ -74,7 +74,7 @@ public sealed class HostedRecoveryConversationAdapterTests
         Assert.Equal("openai", proposal.Metadata!.Provider);
         Assert.Equal("gpt-5.6-terra", proposal.Metadata.Model);
         Assert.Equal(
-            "recovery-conversation-v1",
+            "recovery-conversation-v2",
             proposal.Metadata.PromptVersion);
         Assert.Equal(
             RecoverySchemaVersions.V1,
@@ -126,6 +126,12 @@ public sealed class HostedRecoveryConversationAdapterTests
         Assert.Equal(
             4,
             schema.GetProperty("required").GetArrayLength());
+        Assert.Equal(
+            280,
+            schema.GetProperty("properties")
+                .GetProperty("assistant_message")
+                .GetProperty("maxLength")
+                .GetInt32());
 
         var inputText = InputText(captured.Body);
         Assert.Contains(untrustedMarker, inputText, StringComparison.Ordinal);
@@ -137,6 +143,10 @@ public sealed class HostedRecoveryConversationAdapterTests
         Assert.DoesNotContain("\"image\"", inputText, StringComparison.Ordinal);
         Assert.Contains("\"current_transcript\"", inputText, StringComparison.Ordinal);
         Assert.Contains("\"allowed_outcomes\"", inputText, StringComparison.Ordinal);
+        Assert.Contains(
+            "\"accountability_message\":\"The phone has had its turn. Put it down and finish the report.\"",
+            inputText,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -582,7 +592,8 @@ public sealed class HostedRecoveryConversationAdapterTests
                 "Sustained attention to a phone",
                 "Phone-directed posture remained visible across three observations.",
                 "The cited pattern may conflict with the confirmed Goal.",
-                RequestedAtUtc.AddMinutes(-1)),
+                RequestedAtUtc.AddMinutes(-1),
+                "The phone has had its turn. Put it down and finish the report."),
             new RecoveryDisputedInterval(
                 TimeSpan.FromMinutes(10),
                 TimeSpan.FromMinutes(12)),

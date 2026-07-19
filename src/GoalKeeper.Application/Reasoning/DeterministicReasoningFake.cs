@@ -140,7 +140,11 @@ public sealed class DeterministicReasoningFake : IReasoningPort
             latest,
             references,
             [],
-            "The bounded visible evidence may warrant a Recovery Check-in.");
+            "The bounded visible evidence may warrant a Recovery Check-in.",
+            GoalKeeper.Application.Recovery.AccountabilityMessageFactory.Create(
+                request.SessionId,
+                request.Contract.GoalTitle,
+                unlistedDescription ?? "the visible distraction"));
         var known = request.RecentObservations
             .ToDictionary(value => value.Id, value => value.CapturedAtMonotonic);
         var evidenceReferences = references
@@ -176,9 +180,9 @@ public sealed class DeterministicReasoningFake : IReasoningPort
     private static ReasoningMetadata Metadata() =>
         new(
             "deterministic-fake",
-            "reasoning-script-v1",
-            "reasoning-v1",
-            ReasoningSchemaVersions.V1,
+            "reasoning-script-v2",
+            "reasoning-v2",
+            ReasoningSchemaVersions.V2,
             TimeSpan.Zero,
             $"reasoning-{Guid.NewGuid():N}");
 }
