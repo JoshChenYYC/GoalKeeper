@@ -1,8 +1,10 @@
+using System.Diagnostics;
 using GoalKeeper.Application;
 using GoalKeeper.Application.Monitoring;
 using GoalKeeper.Application.Recovery;
 using GoalKeeper.Application.Runtime;
 using GoalKeeper.Domain;
+using GoalKeeper.Web.Operations;
 using Microsoft.Extensions.Options;
 
 namespace GoalKeeper.Web.Presentation;
@@ -35,6 +37,7 @@ public sealed record PreflightPageView(
     string? PreviewDataUrl,
     int? PreviewWidth,
     int? PreviewHeight,
+    PreflightTiming? Timing,
     bool CanCapture,
     bool CanRetry,
     bool CanConfirm);
@@ -59,9 +62,14 @@ public sealed record LiveSessionPageView(
     bool CanSubmitVoiceRecovery,
     bool CanReturnToRecovery,
     bool IsTerminal,
-    EndedEarlyReason? EndedEarlyReason);
+    EndedEarlyReason? EndedEarlyReason,
+    TimeSpan? StartupDuration);
 
-public sealed record SessionStartPresentation(bool Started, Guid? SessionId, string? Error);
+public sealed record SessionStartPresentation(
+    bool Started,
+    Guid? SessionId,
+    string? Error,
+    TimeSpan Duration);
 
 public interface ISessionRuntimePresentation
 {
@@ -81,12 +89,16 @@ public sealed class SessionRuntimePresentation(
     SessionRuntimeController controller,
     IGoalKeeperRepository repository,
     IOptions<SessionRuntimeUiOptions> options,
+    IOptions<GoalKeeperOperationalOptions> operationalOptions,
     IVoiceRecoveryPort? voiceRecovery = null) : ISessionRuntimePresentation, IDisposable
 {
     private readonly SemaphoreSlim _commands = new(1, 1);
     private readonly SemaphoreSlim _preflightCommands = new(1, 1);
     private readonly SessionRuntimeUiOptions _options = options.Value;
+    private readonly bool _hostedProvidersEnabled =
+        operationalOptions.Value.Providers.Mode == GoalKeeperProviderMode.Hosted;
     private PreflightPageView? _activePreflightView;
+    private SessionStartDiagnostic? _lastSessionStart;
 
     public async Task<PreflightPageView> GetPreflightAsync(
         Guid setupId,
@@ -193,6 +205,7 @@ public sealed class SessionRuntimePresentation(
         Guid setupId,
         CancellationToken cancellationToken = default)
     {
+        var startedAt = Stopwatch.GetTimestamp();
         await _preflightCommands.WaitAsync(cancellationToken);
         try
         {
@@ -208,7 +221,11 @@ public sealed class SessionRuntimePresentation(
             if (!canConfirm)
             {
                 ClearStalePreflight(status);
-                return new(false, null, "Capture and validate a camera view before starting.");
+                return new(
+                    false,
+                    null,
+                    "Capture and validate a camera view before starting.",
+                    Stopwatch.GetElapsedTime(startedAt));
             }
 
             SessionStartResult result;
@@ -224,9 +241,18 @@ public sealed class SessionRuntimePresentation(
                 _activePreflightView = null;
             }
 
-            return result.Session is null
-                ? new(false, null, PreflightMessage(result.PreflightStatus, result.Rejection))
-                : new(true, result.Session.Id, null);
+            var duration = Stopwatch.GetElapsedTime(startedAt);
+            if (result.Session is null)
+            {
+                return new(
+                    false,
+                    null,
+                    PreflightMessage(result.PreflightStatus, result.Rejection),
+                    duration);
+            }
+
+            _lastSessionStart = new(result.Session.Id, duration);
+            return new(true, result.Session.Id, null, duration);
         }
         finally
         {
@@ -354,7 +380,10 @@ public sealed class SessionRuntimePresentation(
             live.CanSubmitRecovery && voiceRecovery is not null,
             live.CanReturnToRecovery,
             live.IsTerminal,
-            live.EndedEarlyReason);
+            live.EndedEarlyReason,
+            _lastSessionStart is { } diagnostic && diagnostic.SessionId == live.SessionId
+                ? diagnostic.Duration
+                : null);
     }
 
     private async Task<SessionSetupView> RequireReadySetupAsync(
@@ -371,7 +400,7 @@ public sealed class SessionRuntimePresentation(
         return setup;
     }
 
-    private static PreflightPageView MapPreflight(
+    private PreflightPageView MapPreflight(
         SessionSetupView setup,
         SessionPreflightAttempt? attempt)
     {
@@ -387,10 +416,15 @@ public sealed class SessionRuntimePresentation(
             setup.Contract.DeviationProfileName,
             $"{setup.Contract.ReasoningMode} · {setup.Contract.Sensitivity}",
             attempt?.Status,
-            attempt is null ? null : PreflightMessage(attempt.Status, attempt.Rejection),
+            attempt is null
+                ? _hostedProvidersEnabled
+                    ? null
+                    : "Hosted AI validation is disabled. You can capture a test image, but GoalKeeper cannot approve preflight or start a Focus Session until Hosted mode is configured."
+                : PreflightMessage(attempt.Status, attempt.Rejection),
             dataUrl,
             preview?.PixelWidth,
             preview?.PixelHeight,
+            attempt?.Timing,
             attempt is null,
             attempt?.CanRetry == true,
             attempt?.Status == PreflightStatus.AwaitingConfirmation);
@@ -410,7 +444,7 @@ public sealed class SessionRuntimePresentation(
         }
     }
 
-    private static string PreflightMessage(PreflightStatus status, PreflightRejection rejection) =>
+    private string PreflightMessage(PreflightStatus status, PreflightRejection rejection) =>
         (status, rejection) switch
         {
             (PreflightStatus.AwaitingConfirmation, _) =>
@@ -419,8 +453,10 @@ public sealed class SessionRuntimePresentation(
                 "The image is not clear enough. Adjust the light or camera and try again.",
             (PreflightStatus.Rejected, PreflightRejection.PeopleCount) =>
                 "Preflight needs exactly one person in view. Adjust the camera and try again.",
+            (PreflightStatus.TechnicalFailure, _) when !_hostedProvidersEnabled =>
+                "Image captured, but hosted AI validation is disabled. Configure an OpenAI API key, enable Hosted mode, restart GoalKeeper, and try again. No behavioral judgment was recorded.",
             (PreflightStatus.TechnicalFailure, _) =>
-                "Camera validation is temporarily unavailable. No behavioral judgment was recorded.",
+                "Image captured, but hosted camera validation failed. Check the GoalKeeper host output and provider configuration, then try again. No behavioral judgment was recorded.",
             (PreflightStatus.Cancelled, _) => "Preflight was cancelled.",
             _ => "The camera view could not be confirmed. Try another capture."
         };
@@ -458,4 +494,6 @@ public sealed class SessionRuntimePresentation(
         _commands.Dispose();
         _preflightCommands.Dispose();
     }
+
+    private sealed record SessionStartDiagnostic(Guid SessionId, TimeSpan Duration);
 }

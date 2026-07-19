@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using GoalKeeper.Application.Perception;
 
 namespace GoalKeeper.Application.Monitoring;
@@ -15,15 +16,24 @@ public sealed class PreflightOrchestrator(
         CancellationToken cancellationToken = default)
     {
         _candidate = null;
+        var totalStarted = Stopwatch.GetTimestamp();
+        var cameraStarted = Stopwatch.GetTimestamp();
         var acquired = await frameAcquirer.AcquireAsync(input, cameraOptions, cancellationToken);
+        var cameraElapsed = Stopwatch.GetElapsedTime(cameraStarted);
         if (acquired.Status == PreflightAcquisitionStatus.Cancelled)
         {
-            return new(PreflightStatus.Cancelled, null, null, PreflightRejection.None);
+            return new(
+                PreflightStatus.Cancelled,
+                null,
+                null,
+                PreflightRejection.None,
+                new(cameraElapsed, TimeSpan.Zero, Stopwatch.GetElapsedTime(totalStarted)));
         }
 
         var frame = acquired.Frame ??
             throw new InvalidOperationException("A successful preflight acquisition requires a frame.");
 
+        var providerStarted = Stopwatch.GetTimestamp();
         PerceptionResult result;
         try
         {
@@ -41,8 +51,17 @@ public sealed class PreflightOrchestrator(
                 PreflightStatus.TechnicalFailure,
                 frame,
                 null,
-                PreflightRejection.PerceptionFailure);
+                PreflightRejection.PerceptionFailure,
+                new(
+                    cameraElapsed,
+                    Stopwatch.GetElapsedTime(providerStarted),
+                    Stopwatch.GetElapsedTime(totalStarted)));
         }
+
+        var timing = new PreflightTiming(
+            cameraElapsed,
+            result.Metadata.Latency,
+            Stopwatch.GetElapsedTime(totalStarted));
 
         if (result is PerceptionInvalid)
         {
@@ -50,7 +69,8 @@ public sealed class PreflightOrchestrator(
                 PreflightStatus.TechnicalFailure,
                 frame,
                 null,
-                PreflightRejection.PerceptionInvalid);
+                PreflightRejection.PerceptionInvalid,
+                timing);
         }
 
         if (result is PerceptionFailure)
@@ -59,7 +79,8 @@ public sealed class PreflightOrchestrator(
                 PreflightStatus.TechnicalFailure,
                 frame,
                 null,
-                PreflightRejection.PerceptionFailure);
+                PreflightRejection.PerceptionFailure,
+                timing);
         }
 
         var observation = ((PerceptionSuccess)result).Proposal;
@@ -69,7 +90,8 @@ public sealed class PreflightOrchestrator(
                 PreflightStatus.Rejected,
                 frame,
                 observation,
-                PreflightRejection.ImageQuality);
+                PreflightRejection.ImageQuality,
+                timing);
         }
 
         if (observation.PeopleCount.Status != PeopleCountStatus.Counted ||
@@ -79,14 +101,16 @@ public sealed class PreflightOrchestrator(
                 PreflightStatus.Rejected,
                 frame,
                 observation,
-                PreflightRejection.PeopleCount);
+                PreflightRejection.PeopleCount,
+                timing);
         }
 
         _candidate = new(
             PreflightStatus.AwaitingConfirmation,
             frame,
             observation,
-            PreflightRejection.None);
+            PreflightRejection.None,
+            timing);
         return _candidate;
     }
 

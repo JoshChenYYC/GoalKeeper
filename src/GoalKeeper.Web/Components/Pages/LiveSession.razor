@@ -66,6 +66,13 @@ else
             This technical issue is never treated as behavioral evidence.
         </div>
     }
+    @if (_view.StartupDuration is { } startupDuration)
+    {
+        <div class="alert diagnostic" role="status">
+            <strong>Session startup diagnostic</strong>
+            Confirmation to active monitoring took @FormatDiagnosticTiming(startupDuration).
+        </div>
+    }
     @if (_error is not null)
     {
         <div class="alert error" role="alert">@_error</div>
@@ -384,6 +391,18 @@ else
             : value.TotalMinutes >= 1
                 ? $"{(int)value.TotalMinutes}m {value.Seconds}s"
                 : $"{Math.Max(0, value.Seconds)}s";
+
+    private static string FormatDiagnosticTiming(TimeSpan duration)
+    {
+        if (duration < TimeSpan.FromMilliseconds(1))
+        {
+            return "< 1 ms";
+        }
+
+        return duration < TimeSpan.FromSeconds(1)
+            ? $"{duration.TotalMilliseconds:F0} ms"
+            : $"{duration.TotalSeconds:F2} s";
+    }
 
     public async ValueTask DisposeAsync()
     {

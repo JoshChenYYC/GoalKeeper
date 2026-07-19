@@ -1,4 +1,6 @@
 @page "/sessions/{SetupId:guid}/preflight"
+@using System.Diagnostics
+@implements IAsyncDisposable
 @inject ISessionRuntimePresentation SessionUi
 @inject NavigationManager Navigation
 
@@ -39,8 +41,8 @@ else
             {
                 <div class="camera-empty" role="status">
                     <span class="camera-mark pulse" aria-hidden="true"></span>
-                    <strong>Checking the camera…</strong>
-                    <span>This may take a few seconds.</span>
+                    <strong>@(_operationLabel ?? "Working…")</strong>
+                    <span>@FormatTiming(_operationElapsed) elapsed</span>
                 </div>
             }
             else if (_view.PreviewDataUrl is not null)
@@ -68,11 +70,48 @@ else
                 <small>@_view.ScheduledBreakCount scheduled break@(_view.ScheduledBreakCount == 1 ? "" : "s")</small>
             </div>
 
+            @if (_busy && _operationLabel is not null)
+            {
+                <div class="timing-current" role="status" aria-live="polite">
+                    <span>@_operationLabel</span>
+                    <strong>@FormatTiming(_operationElapsed)</strong>
+                </div>
+            }
+
             @if (_view.StatusMessage is not null)
             {
                 <div class="@StatusClass" role="@(_view.CanConfirm ? "status" : "alert")">
                     @_view.StatusMessage
                 </div>
+            }
+
+            @if (_view.Timing is { } timing)
+            {
+                <section class="timing-diagnostics" aria-label="Preflight timing diagnostics">
+                    <strong>Timing diagnostics</strong>
+                    <dl>
+                        <div>
+                            <dt>Camera + JPEG</dt>
+                            <dd>@FormatTiming(timing.CameraAcquisition)</dd>
+                        </div>
+                        <div>
+                            <dt>Provider validation</dt>
+                            <dd>@FormatTiming(timing.ProviderValidation)</dd>
+                        </div>
+                        <div>
+                            <dt>Server total</dt>
+                            <dd>@FormatTiming(timing.Total)</dd>
+                        </div>
+                        @if (_lastCaptureControlDuration is { } controlDuration)
+                        {
+                            <div>
+                                <dt>Control elapsed</dt>
+                                <dd>@FormatTiming(controlDuration)</dd>
+                            </div>
+                        }
+                    </dl>
+                    <small>Provider time comes from the configured adapter. Control elapsed measures the complete button action.</small>
+                </section>
             }
 
             @if (_view.CanConfirm)
@@ -111,6 +150,12 @@ else
     private bool _viewConfirmed;
     private bool _busy;
     private string? _error;
+    private CancellationTokenSource? _operationTimerCancellation;
+    private Task? _operationTimerTask;
+    private long _operationStartedAt;
+    private string? _operationLabel;
+    private TimeSpan _operationElapsed;
+    private TimeSpan? _lastCaptureControlDuration;
 
     private string StatusClass => _view?.CanConfirm == true ? "alert success" : "alert warning";
 
@@ -140,6 +185,7 @@ else
         _busy = true;
         _error = null;
         _viewConfirmed = false;
+        await BeginOperationAsync("Capturing camera and validating…");
         try
         {
             _view = await SessionUi.CaptureAsync(SetupId, retry);
@@ -150,8 +196,16 @@ else
         }
         finally
         {
+            _lastCaptureControlDuration = await StopOperationAsync();
             _busy = false;
+            await RenderStateAsync();
         }
+    }
+
+    private async Task RenderStateAsync()
+    {
+        await InvokeAsync(StateHasChanged);
+        await Task.Yield();
     }
 
     private async Task StartAsync()
@@ -163,16 +217,14 @@ else
 
         _busy = true;
         _error = null;
+        await BeginOperationAsync("Starting Focus Session…");
+        SessionStartPresentation? result = null;
         try
         {
-            var result = await SessionUi.ConfirmAndStartAsync(SetupId);
-            if (result.Started && result.SessionId is { } sessionId)
-            {
-                Navigation.NavigateTo($"/sessions/{sessionId}/live");
-                return;
-            }
-
-            _error = result.Error ?? "The Focus Session could not start.";
+            result = await SessionUi.ConfirmAndStartAsync(SetupId);
+            _error = result.Started
+                ? null
+                : result.Error ?? "The Focus Session could not start.";
         }
         catch (Exception exception)
         {
@@ -180,7 +232,14 @@ else
         }
         finally
         {
+            await StopOperationAsync();
             _busy = false;
+            await RenderStateAsync();
+        }
+
+        if (result is { Started: true, SessionId: { } sessionId })
+        {
+            Navigation.NavigateTo($"/sessions/{sessionId}/live");
         }
     }
 
@@ -197,5 +256,73 @@ else
             _error = exception.Message;
             _busy = false;
         }
+    }
+
+    private async Task BeginOperationAsync(string label)
+    {
+        await StopOperationAsync();
+        _operationLabel = label;
+        _operationElapsed = TimeSpan.Zero;
+        _operationStartedAt = Stopwatch.GetTimestamp();
+        _operationTimerCancellation = new CancellationTokenSource();
+        _operationTimerTask = UpdateOperationTimerAsync(_operationTimerCancellation.Token);
+        await RenderStateAsync();
+    }
+
+    private async Task<TimeSpan> StopOperationAsync()
+    {
+        if (_operationLabel is null)
+        {
+            return _operationElapsed;
+        }
+
+        _operationElapsed = Stopwatch.GetElapsedTime(_operationStartedAt);
+        var cancellation = _operationTimerCancellation;
+        var timerTask = _operationTimerTask;
+        _operationTimerCancellation = null;
+        _operationTimerTask = null;
+        cancellation?.Cancel();
+        if (timerTask is not null)
+        {
+            await timerTask;
+        }
+
+        cancellation?.Dispose();
+        _operationLabel = null;
+        return _operationElapsed;
+    }
+
+    private async Task UpdateOperationTimerAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(250));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                _operationElapsed = Stopwatch.GetElapsedTime(_operationStartedAt);
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    private static string FormatTiming(TimeSpan duration)
+    {
+        if (duration < TimeSpan.FromMilliseconds(1))
+        {
+            return "< 1 ms";
+        }
+
+        return duration < TimeSpan.FromSeconds(1)
+            ? $"{duration.TotalMilliseconds:F0} ms"
+            : $"{duration.TotalSeconds:F2} s";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await StopOperationAsync();
+        GC.SuppressFinalize(this);
     }
 }

@@ -162,6 +162,64 @@
     overflow-wrap: anywhere;
 }
 
+.timing-current {
+    display: flex;
+    justify-content: space-between;
+    gap: .75rem;
+    align-items: baseline;
+    padding: .7rem .8rem;
+    border: 1px solid #b9d5ca;
+    border-radius: 8px;
+    background: #f1f8f5;
+    color: #285244;
+    font-size: .78rem;
+}
+
+.timing-current strong,
+.timing-diagnostics dd {
+    color: #153c31;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.timing-diagnostics {
+    padding: .8rem;
+    border: 1px solid #d8e1db;
+    border-radius: 8px;
+    background: #f8faf8;
+}
+
+.timing-diagnostics > strong {
+    color: #314039;
+    font-size: .78rem;
+}
+
+.timing-diagnostics dl {
+    display: grid;
+    gap: .35rem;
+    margin: .55rem 0;
+}
+
+.timing-diagnostics dl > div {
+    display: flex;
+    justify-content: space-between;
+    gap: .75rem;
+    color: #59665f;
+    font-size: .75rem;
+}
+
+.timing-diagnostics dt,
+.timing-diagnostics dd {
+    margin: 0;
+}
+
+.timing-diagnostics small {
+    display: block;
+    color: #68736d;
+    font-size: .68rem;
+    line-height: 1.4;
+}
+
 .alert {
     margin-bottom: 1.25rem;
     padding: .9rem 1rem;

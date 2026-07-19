@@ -9,6 +9,7 @@ using GoalKeeper.Application.Recovery;
 using GoalKeeper.Application.Runtime;
 using GoalKeeper.Domain;
 using GoalKeeper.Infrastructure;
+using GoalKeeper.Web.Operations;
 using GoalKeeper.Web.Presentation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -17,6 +18,56 @@ namespace GoalKeeper.Integration.Tests;
 
 public sealed class SessionRuntimePresentationTests
 {
+    [Fact]
+    public async Task Timing_diagnostics_flow_from_preflight_through_session_start()
+    {
+        var providerLatency = TimeSpan.FromSeconds(1.25);
+        await using var harness = await PresentationHarness.CreateAsync(
+            PerceptionFakeStep.Return(Success(AcceptableObservation(), providerLatency)));
+
+        var captured = await harness.Presentation.CaptureAsync(
+            harness.Setup.Id,
+            retry: false);
+
+        Assert.NotNull(captured.Timing);
+        Assert.Equal(providerLatency, captured.Timing.ProviderValidation);
+        Assert.True(captured.Timing.Total >= captured.Timing.CameraAcquisition);
+
+        var started = await harness.Presentation.ConfirmAndStartAsync(harness.Setup.Id);
+        Assert.True(started.Started);
+        Assert.True(started.Duration >= TimeSpan.Zero);
+
+        var live = await harness.Presentation.GetLiveAsync(started.SessionId!.Value);
+        Assert.NotNull(live);
+        Assert.Equal(started.Duration, live.StartupDuration);
+    }
+
+    [Fact]
+    public async Task Disabled_provider_explains_camera_only_preflight_before_and_after_capture()
+    {
+        await using var harness = await PresentationHarness.CreateAsync(
+            firstStep: PerceptionFakeStep.Return(ProviderUnavailable()),
+            providerMode: GoalKeeperProviderMode.Disabled);
+
+        var initial = await harness.Presentation.GetPreflightAsync(harness.Setup.Id);
+
+        Assert.True(initial.CanCapture);
+        Assert.Contains("Hosted AI validation is disabled", initial.StatusMessage);
+        Assert.Contains("cannot approve preflight", initial.StatusMessage);
+
+        var captured = await harness.Presentation.CaptureAsync(
+            harness.Setup.Id,
+            retry: false);
+
+        Assert.Equal(PreflightStatus.TechnicalFailure, captured.Status);
+        Assert.NotNull(captured.PreviewDataUrl);
+        Assert.True(captured.CanRetry);
+        Assert.False(captured.CanConfirm);
+        Assert.Contains("Image captured", captured.StatusMessage);
+        Assert.Contains("enable Hosted mode", captured.StatusMessage);
+        Assert.Contains("No behavioral judgment", captured.StatusMessage);
+    }
+
     [Fact]
     public async Task Preflight_cannot_start_without_a_successful_candidate()
     {
@@ -368,12 +419,25 @@ public sealed class SessionRuntimePresentationTests
             TimeSpan.FromSeconds(5),
             CameraOptions());
 
-    private static PerceptionSuccess Success(Observation observation) =>
+    private static PerceptionSuccess Success(
+        Observation observation,
+        TimeSpan? latency = null) =>
         new(
             observation,
             new(
                 "deterministic-fake",
                 "perception-v1",
+                "perception-v1",
+                ObservationSchemaVersions.V1,
+                latency ?? TimeSpan.Zero,
+                Guid.NewGuid().ToString("N")));
+
+    private static PerceptionFailure ProviderUnavailable() =>
+        new(
+            PerceptionFailureCategory.ProviderUnavailable,
+            new(
+                "unconfigured",
+                "none",
                 "perception-v1",
                 ObservationSchemaVersions.V1,
                 TimeSpan.Zero,
@@ -473,7 +537,8 @@ public sealed class SessionRuntimePresentationTests
             PerceptionFakeStep? firstStep = null,
             bool withScheduledBreak = false,
             IReadOnlyList<PerceptionFakeStep>? preflightSteps = null,
-            RecoveryOutcome? recoveryOutcome = null)
+            RecoveryOutcome? recoveryOutcome = null,
+            GoalKeeperProviderMode providerMode = GoalKeeperProviderMode.Hosted)
         {
             var root = Path.Combine(
                 Path.GetTempPath(),
@@ -561,6 +626,14 @@ public sealed class SessionRuntimePresentationTests
                     CaptureCadence = TimeSpan.FromSeconds(10),
                     ObservationFreshnessLimit = TimeSpan.FromMinutes(1),
                     TechnicalGracePeriod = TimeSpan.FromSeconds(5)
+                }),
+                Options.Create(new GoalKeeperOperationalOptions
+                {
+                    DataRoot = root,
+                    Providers = new GoalKeeperProviderOptions
+                    {
+                        Mode = providerMode
+                    }
                 }));
             return new(
                 root,

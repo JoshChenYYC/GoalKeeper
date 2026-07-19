@@ -25,7 +25,8 @@ public sealed record SessionPreflightAttempt(
     PreflightStatus Status,
     PreflightRejection Rejection,
     bool CanRetry,
-    PreflightPreview? Preview);
+    PreflightPreview? Preview,
+    PreflightTiming? Timing);
 
 public sealed record PreflightPreview(
     byte[] Jpeg,
