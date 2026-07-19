@@ -18,7 +18,7 @@ public sealed class OpenAiReasoningOptions
 
     public Uri BaseUrl { get; set; } = new("https://api.openai.com/v1");
 
-    public string Model { get; set; } = "gpt-5.6-sol";
+    public string Model { get; set; } = "gpt-5.6-luna";
 
     public string Effort { get; set; } = "medium";
 

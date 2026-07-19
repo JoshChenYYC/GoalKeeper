@@ -49,7 +49,7 @@ public sealed class PerceptionHostOptions
 
 public sealed class ReasoningHostOptions
 {
-    public string Model { get; set; } = "gpt-5.6-sol";
+    public string Model { get; set; } = "gpt-5.6-luna";
 
     public string Effort { get; set; } = "medium";
 }
@@ -179,7 +179,7 @@ public sealed class GoalKeeperOperationalOptionsValidator :
             failures);
         Exact(
             providers.Reasoning.Model,
-            "gpt-5.6-sol",
+            "gpt-5.6-luna",
             "GoalKeeper:Providers:Reasoning:Model",
             failures);
         Exact(

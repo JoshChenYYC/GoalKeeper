@@ -42,7 +42,7 @@ public sealed class HostedReasoningAdapterTests
         Assert.Equal(ReasoningDecision.ContinueObserving, result.Proposal.Decision);
         Assert.Null(result.Proposal.Intervention);
         Assert.Equal("openai", result.Metadata.Provider);
-        Assert.Equal("gpt-5.6-sol", result.Metadata.Model);
+        Assert.Equal("gpt-5.6-luna", result.Metadata.Model);
         Assert.Equal("reasoning-v1", result.Metadata.PromptVersion);
         Assert.Equal(RequestId1, result.Metadata.RequestId);
         Assert.Single(handler.Requests);
@@ -428,7 +428,7 @@ public sealed class HostedReasoningAdapterTests
     public async Task Hostile_provider_metadata_uses_safe_local_fallbacks()
     {
         var body = MutateValidResponse(root =>
-            root["model"] = "gpt-5.6-sol-data:image/jpeg;base64,SECRET");
+            root["model"] = "gpt-5.6-luna-data:image/jpeg;base64,SECRET");
         var handler = new ScriptedHandler((_, _) => Task.FromResult(
             Response(HttpStatusCode.OK, body, $"req_{TestApiKey}")));
         var adapter = CreateAdapter(handler);
@@ -437,7 +437,7 @@ public sealed class HostedReasoningAdapterTests
             await adapter.EvaluateAsync(Request()));
         var metadata = SafeMetadata(result.Metadata);
 
-        Assert.Equal("gpt-5.6-sol", result.Metadata.Model);
+        Assert.Equal("gpt-5.6-luna", result.Metadata.Model);
         Assert.StartsWith("local-", result.Metadata.RequestId, StringComparison.Ordinal);
         Assert.DoesNotContain(TestApiKey, metadata, StringComparison.Ordinal);
         Assert.DoesNotContain("base64", metadata, StringComparison.Ordinal);
@@ -450,7 +450,7 @@ public sealed class HostedReasoningAdapterTests
         {
             [OpenAiReasoningOptions.ApiKeyConfigurationKey] = TestApiKey,
             [OpenAiReasoningOptions.BaseUrlConfigurationKey] = "https://recorded.test/v1",
-            [OpenAiReasoningOptions.ModelConfigurationKey] = "gpt-5.6-sol",
+            [OpenAiReasoningOptions.ModelConfigurationKey] = "gpt-5.6-luna",
             [OpenAiReasoningOptions.EffortConfigurationKey] = "medium"
         };
         var configuration = new ConfigurationBuilder()
@@ -534,7 +534,7 @@ public sealed class HostedReasoningAdapterTests
         {
             ApiKey = TestApiKey,
             BaseUrl = new Uri("https://recorded.test/v1"),
-            Model = "gpt-5.6-sol",
+            Model = "gpt-5.6-luna",
             Effort = "medium"
         };
         configure?.Invoke(options);

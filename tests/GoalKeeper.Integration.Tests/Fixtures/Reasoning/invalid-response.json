@@ -5,7 +5,7 @@
   "status": "completed",
   "error": null,
   "incomplete_details": null,
-  "model": "gpt-5.6-sol",
+  "model": "gpt-5.6-luna",
   "output": [
     {
       "id": "msg_reasoning_invalid",

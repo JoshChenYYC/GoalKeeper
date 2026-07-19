@@ -13,7 +13,7 @@ does not add a production provider adapter.
 | `GoalKeeper:Providers:OpenAI:BaseUrl` | `GoalKeeper__Providers__OpenAI__BaseUrl` | `https://api.openai.com/v1` | No |
 | `GoalKeeper:Providers:Perception:Model` | `GoalKeeper__Providers__Perception__Model` | `gpt-5.6-luna` | No |
 | `GoalKeeper:Providers:Perception:ImageDetail` | `GoalKeeper__Providers__Perception__ImageDetail` | `low` | No |
-| `GoalKeeper:Providers:Reasoning:Model` | `GoalKeeper__Providers__Reasoning__Model` | `gpt-5.6-sol` | No |
+| `GoalKeeper:Providers:Reasoning:Model` | `GoalKeeper__Providers__Reasoning__Model` | `gpt-5.6-luna` | No |
 | `GoalKeeper:Providers:Reasoning:Effort` | `GoalKeeper__Providers__Reasoning__Effort` | `medium` | No |
 | `GoalKeeper:Providers:Recovery:ConversationModel` | `GoalKeeper__Providers__Recovery__ConversationModel` | `gpt-5.6-terra` | No |
 | `GoalKeeper:Providers:Recovery:ReasoningEffort` | `GoalKeeper__Providers__Recovery__ReasoningEffort` | `low` | No |
@@ -40,7 +40,7 @@ $env:GoalKeeper__Providers__Mode = "Hosted"
 $env:GoalKeeper__Providers__OpenAI__BaseUrl = "https://api.openai.com/v1"
 $env:GoalKeeper__Providers__Perception__Model = "gpt-5.6-luna"
 $env:GoalKeeper__Providers__Perception__ImageDetail = "low"
-$env:GoalKeeper__Providers__Reasoning__Model = "gpt-5.6-sol"
+$env:GoalKeeper__Providers__Reasoning__Model = "gpt-5.6-luna"
 $env:GoalKeeper__Providers__Reasoning__Effort = "medium"
 $env:GoalKeeper__Providers__Recovery__ConversationModel = "gpt-5.6-terra"
 $env:GoalKeeper__Providers__Recovery__ReasoningEffort = "low"

@@ -66,7 +66,7 @@ public sealed class OperationalConfigurationTests
 
         Assert.Equal(GoalKeeperProviderMode.Hosted, options.Providers.Mode);
         Assert.Equal("gpt-5.6-luna", options.Providers.Perception.Model);
-        Assert.Equal("gpt-5.6-sol", options.Providers.Reasoning.Model);
+        Assert.Equal("gpt-5.6-luna", options.Providers.Reasoning.Model);
         Assert.Equal(
             "gpt-5.6-terra",
             options.Providers.Recovery.ConversationModel);
@@ -209,7 +209,7 @@ public sealed class OperationalConfigurationTests
                 "https://api.openai.com/v1",
             ["GoalKeeper:Providers:Perception:Model"] = "gpt-5.6-luna",
             ["GoalKeeper:Providers:Perception:ImageDetail"] = "low",
-            ["GoalKeeper:Providers:Reasoning:Model"] = "gpt-5.6-sol",
+            ["GoalKeeper:Providers:Reasoning:Model"] = "gpt-5.6-luna",
             ["GoalKeeper:Providers:Reasoning:Effort"] = "medium",
             ["GoalKeeper:Providers:Recovery:ConversationModel"] =
                 "gpt-5.6-terra",
