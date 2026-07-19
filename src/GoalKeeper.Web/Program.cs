@@ -1,6 +1,7 @@
 using GoalKeeper.Application;
 using GoalKeeper.Infrastructure;
 using GoalKeeper.Web.Components;
+using GoalKeeper.Web.Operations;
 using GoalKeeper.Web.Runtime;
 using Microsoft.EntityFrameworkCore;
 
@@ -9,14 +10,11 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+builder.Services.AddGoalKeeperOperations(builder.Configuration);
 
-var dataRoot = builder.Configuration["GoalKeeper:DataRoot"];
-if (string.IsNullOrWhiteSpace(dataRoot))
-{
-    dataRoot = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "GoalKeeper");
-}
+var dataRoot =
+    GoalKeeperOperationsServiceCollectionExtensions.ResolveDataRoot(
+        builder.Configuration);
 Directory.CreateDirectory(dataRoot);
 var databasePath = Path.Combine(dataRoot, "goalkeeper.db");
 

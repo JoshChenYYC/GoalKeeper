@@ -10,6 +10,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+    <UserSecretsId>GoalKeeper.Web-6c79a2e7-98dd-45f9-a54f-2a7894cf2ad7</UserSecretsId>
   </PropertyGroup>
 
 </Project>

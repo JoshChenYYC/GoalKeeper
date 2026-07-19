@@ -50,16 +50,28 @@ $env:GoalKeeper__Providers__Recovery__Voice = "coral"
 ```
 
 For local .NET development, the Secret Manager name is
-`GoalKeeper:Providers:OpenAI:ApiKey`. GK-015 must initialize Secret Manager for
-`GoalKeeper.Web`; the current project intentionally has no `UserSecretsId` yet.
+`GoalKeeper:Providers:OpenAI:ApiKey`. `GoalKeeper.Web` has a committed
+`UserSecretsId`, so IDE secret-management commands store the value outside the
+repository.
 Set the value through an IDE secret-management UI or another input method that
 does not expose it in shell history or a process list. Never paste a real key
 into this document, `appsettings*.json`, `.env`, a test fixture, or a command
 transcript.
 
+The committed default is `GoalKeeper:Providers:Mode=Disabled`. It validates and
+starts without reading provider credentials and resolves only deterministic
+unavailable/fake boundaries. `Hosted` validates the complete exact model stack
+and API key during host startup, but final live-adapter composition remains
+owned by GK-016.
+
+The default local binding is `http://127.0.0.1:5072`. Override `Urls` explicitly
+only for a deliberate local environment; remote hosting is outside the
+prototype scope. `GoalKeeper:DataRoot` defaults to
+`%LocalAppData%\GoalKeeper` and must be an absolute path when overridden.
+
 ## Fail-fast validation
 
-GK-015 must validate the complete provider options during host startup:
+The host validates the complete provider options during startup:
 
 1. `Mode` is exactly `Disabled` or `Hosted`.
 2. `Hosted` requires a nonblank API key and an absolute HTTPS base URL.
