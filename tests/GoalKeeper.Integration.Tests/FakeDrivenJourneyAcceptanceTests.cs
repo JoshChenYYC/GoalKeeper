@@ -39,6 +39,9 @@ public sealed class FakeDrivenJourneyAcceptanceTests
             $"/sessions/{journey.SetupId}/ready");
         Assert.Contains("One check before focus.", readyHtml);
         Assert.Contains("5 min", readyHtml);
+        Assert.Contains(
+            "automatically opens one bounded microphone response",
+            readyHtml);
         Assert.DoesNotContain(":g min", readyHtml);
 
         var preflight = await journey.Presentation.CaptureAsync(
@@ -170,7 +173,7 @@ public sealed class FakeDrivenJourneyAcceptanceTests
     }
 
     [Fact]
-    public async Task Configured_voice_port_is_exposed_and_invoked_only_in_recovery()
+    public async Task Configured_voice_starts_automatically_once_in_recovery()
     {
         await using var journey = await AcceptanceJourney.StartAsync(
             voiceEnabled: true);
@@ -181,25 +184,30 @@ public sealed class FakeDrivenJourneyAcceptanceTests
         await journey.StartSessionAsync();
         await journey.WaitForStateAsync(FocusSessionState.RecoveryCheckIn);
 
+        var starting = await journey.Presentation.GetLiveAsync(
+            journey.SessionId);
+        await journey.Voice.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
         var recovery = await journey.Presentation.GetLiveAsync(
             journey.SessionId);
         var recoveryHtml = await journey.HtmlAsync(
             $"/sessions/{journey.SessionId}/live");
 
-        Assert.True(recovery!.CanSubmitVoiceRecovery);
+        Assert.NotNull(starting);
+        Assert.NotNull(recovery);
+        Assert.True(starting.AutomaticRecoveryVoiceInProgress);
+        Assert.True(recovery.AutomaticRecoveryVoiceInProgress);
+        Assert.True(recovery.AutomaticRecoveryMicrophoneActive);
+        Assert.False(recovery.CanSubmitVoiceRecovery);
         Assert.True(recovery.CanReplayRecoveryOpening);
-        Assert.Contains("Answer by voice", recoveryHtml);
-        Assert.Contains("Prefer to type?", recoveryHtml);
-        Assert.Contains("Replay audio", recoveryHtml);
+        Assert.Contains("Listening now", recoveryHtml);
+        Assert.Contains("MIC active", recoveryHtml);
+        Assert.Contains("Prefer to type instead?", recoveryHtml);
         Assert.Contains("Missed it? Read the check-in", recoveryHtml);
         Assert.Contains(
             System.Text.Encodings.Web.HtmlEncoder.Default.Encode(
                 RecoveryOpeningPrompt.CheckInQuestion),
             recoveryHtml);
-        Assert.True(
-            recoveryHtml.IndexOf("Answer by voice", StringComparison.Ordinal) <
-            recoveryHtml.IndexOf("Prefer to type?", StringComparison.Ordinal));
-        Assert.Equal(0, journey.Voice.CallCount);
+        Assert.Equal(1, journey.Voice.CallCount);
         Assert.Single(journey.Speech.Spoken);
         Assert.Equal(
             RecoveryOpeningPrompt.Create(
@@ -207,7 +215,10 @@ public sealed class FakeDrivenJourneyAcceptanceTests
             journey.Speech.Spoken[0]);
         Assert.Equal(0, journey.Speech.ListeningCueCount);
 
-        var recommitted = await journey.Presentation.SubmitVoiceRecoveryAsync(
+        journey.Voice.Complete();
+        await journey.WaitForStateAsync(FocusSessionState.RecoveryWindow);
+        await journey.WaitForAutomaticVoiceAsync(inProgress: false);
+        var recommitted = await journey.Presentation.GetLiveAsync(
             journey.SessionId);
 
         Assert.Equal(1, journey.Voice.CallCount);
@@ -327,6 +338,24 @@ public sealed class FakeDrivenJourneyAcceptanceTests
             }
 
             Assert.Fail($"The runtime did not reach {expected}.");
+        }
+
+        public async Task WaitForAutomaticVoiceAsync(bool inProgress)
+        {
+            var started = Stopwatch.GetTimestamp();
+            while (Stopwatch.GetElapsedTime(started) < TimeSpan.FromSeconds(10))
+            {
+                var live = await Presentation.GetLiveAsync(SessionId);
+                if (live?.AutomaticRecoveryVoiceInProgress == inProgress)
+                {
+                    return;
+                }
+
+                await Task.Delay(25);
+            }
+
+            Assert.Fail(
+                $"Automatic Recovery voice did not reach in-progress={inProgress}.");
         }
 
         public async Task WaitForReleasedCamerasAsync()
@@ -495,19 +524,27 @@ public sealed class FakeDrivenJourneyAcceptanceTests
 
     public sealed class AcceptanceVoiceRecoveryPort : IVoiceRecoveryPort
     {
+        private readonly TaskCompletionSource _release =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _callCount;
 
         public int CallCount => Volatile.Read(ref _callCount);
 
-        public Task<VoiceRecoveryPortResult> ProposeAsync(
+        public TaskCompletionSource Started { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void Complete() => _release.TrySetResult();
+
+        public async Task<VoiceRecoveryPortResult> ProposeAsync(
             RecoveryRequest request,
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
             Interlocked.Increment(ref _callCount);
+            Started.TrySetResult();
+            await _release.Task.WaitAsync(cancellationToken);
             const string transcript = "I will return to the report.";
-            return Task.FromResult<VoiceRecoveryPortResult>(
-                new VoiceRecoveryProposalResponse(
+            return new VoiceRecoveryProposalResponse(
                     transcript,
                     new(
                         request.SessionId,
@@ -526,7 +563,7 @@ public sealed class FakeDrivenJourneyAcceptanceTests
                             "voice-recovery-v1",
                             RecoverySchemaVersions.V1,
                             TimeSpan.Zero,
-                            $"voice-recovery-{Guid.NewGuid():N}"))));
+                            $"voice-recovery-{Guid.NewGuid():N}")));
         }
     }
 

@@ -420,15 +420,22 @@ public sealed class SessionRuntimePresentationTests
         await harness.PublishBehaviorObservationAsync(sessionId);
 
         var first = await harness.Presentation.GetLiveAsync(sessionId);
-        var second = await harness.Presentation.GetLiveAsync(sessionId);
+        await EventuallyAsync(async () =>
+            (await harness.Presentation.GetLiveAsync(sessionId)) is
+            {
+                AutomaticRecoveryVoiceInProgress: false
+            });
+        var settled = await harness.Presentation.GetLiveAsync(sessionId);
 
         Assert.NotNull(first);
-        Assert.NotNull(second);
-        Assert.True(first.CanReplayRecoveryOpening);
-        Assert.Null(first.RecoveryAudioNotice);
+        Assert.NotNull(settled);
+        Assert.True(first.AutomaticRecoveryVoiceInProgress);
+        Assert.False(first.AutomaticRecoveryMicrophoneActive);
+        Assert.True(settled.CanReplayRecoveryOpening);
+        Assert.Null(settled.RecoveryAudioNotice);
         Assert.Single(speech.Spoken);
         Assert.Equal(
-            RecoveryOpeningPrompt.Create(first.RecoveryAccountabilityMessage!),
+            RecoveryOpeningPrompt.Create(settled.RecoveryAccountabilityMessage!),
             speech.Spoken[0]);
         Assert.Equal(0, speech.ListeningCueCount);
 
@@ -457,16 +464,100 @@ public sealed class SessionRuntimePresentationTests
         await harness.PublishBehaviorObservationAsync(sessionId);
 
         var first = await harness.Presentation.GetLiveAsync(sessionId);
-        var second = await harness.Presentation.GetLiveAsync(sessionId);
+        await EventuallyAsync(async () =>
+            (await harness.Presentation.GetLiveAsync(sessionId))
+                ?.RecoveryAudioNotice is not null);
+        var settled = await harness.Presentation.GetLiveAsync(sessionId);
 
         Assert.NotNull(first);
-        Assert.NotNull(second);
+        Assert.NotNull(settled);
         Assert.True(first.CanSubmitRecovery);
-        Assert.True(first.CanReplayRecoveryOpening);
-        Assert.Contains("Audio playback did not start", first.RecoveryAudioNotice);
-        Assert.Equal(first.RecoveryAudioNotice, second.RecoveryAudioNotice);
+        Assert.True(first.AutomaticRecoveryVoiceInProgress);
+        Assert.True(settled.CanReplayRecoveryOpening);
+        Assert.Contains("Audio playback did not start", settled.RecoveryAudioNotice);
         Assert.Single(speech.Spoken);
         Assert.Equal(0, speech.ListeningCueCount);
+    }
+
+    [Fact]
+    public async Task Recovery_automatically_opens_microphone_once_after_spoken_question()
+    {
+        var speech = new RecordingSpeechOutput();
+        var voice = new BlockingVoiceRecoveryPort();
+        await using var harness = await PresentationHarness.CreateAsync(
+            recoveryOutcome: RecoveryOutcome.Recommit,
+            speechOutput: speech,
+            voiceRecovery: voice);
+        var sessionId = await harness.StartAsync();
+        await harness.PublishBehaviorObservationAsync(sessionId);
+
+        var starting = await harness.Presentation.GetLiveAsync(sessionId);
+        await voice.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var listening = await harness.Presentation.GetLiveAsync(sessionId);
+        var repeated = await harness.Presentation.GetLiveAsync(sessionId);
+
+        Assert.NotNull(starting);
+        Assert.NotNull(listening);
+        Assert.NotNull(repeated);
+        Assert.True(starting.AutomaticRecoveryVoiceInProgress);
+        Assert.True(listening.AutomaticRecoveryVoiceInProgress);
+        Assert.True(listening.AutomaticRecoveryMicrophoneActive);
+        Assert.False(listening.CanSubmitVoiceRecovery);
+        Assert.Equal(1, voice.CallCount);
+        Assert.Single(speech.Spoken);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            harness.Presentation.SubmitVoiceRecoveryAsync(sessionId));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            harness.Presentation.SubmitRecoveryAsync(
+                sessionId,
+                "I tried to submit while automatic listening was active."));
+        Assert.Equal(1, voice.CallCount);
+
+        voice.Complete();
+        await EventuallyAsync(async () =>
+            (await harness.Controller.GetLiveStatusAsync(sessionId))?.State ==
+            FocusSessionState.RecoveryWindow);
+        await EventuallyAsync(async () =>
+            (await harness.Presentation.GetLiveAsync(sessionId)) is
+            {
+                AutomaticRecoveryVoiceInProgress: false
+            });
+        var completed = await harness.Presentation.GetLiveAsync(sessionId);
+
+        Assert.NotNull(completed);
+        Assert.Equal(FocusSessionState.RecoveryWindow, completed.State);
+        Assert.False(completed.AutomaticRecoveryVoiceInProgress);
+        Assert.False(completed.AutomaticRecoveryMicrophoneActive);
+        Assert.Equal(1, voice.CallCount);
+    }
+
+    [Fact]
+    public async Task Automatic_microphone_failure_exposes_manual_fallback_without_retrying()
+    {
+        var speech = new RecordingSpeechOutput();
+        var voice = new FailedVoiceRecoveryPort();
+        await using var harness = await PresentationHarness.CreateAsync(
+            recoveryOutcome: RecoveryOutcome.Recommit,
+            speechOutput: speech,
+            voiceRecovery: voice);
+        var sessionId = await harness.StartAsync();
+        await harness.PublishBehaviorObservationAsync(sessionId);
+
+        _ = await harness.Presentation.GetLiveAsync(sessionId);
+        await EventuallyAsync(async () =>
+            (await harness.Presentation.GetLiveAsync(sessionId))
+                ?.RecoveryAudioNotice?.Contains(
+                    "Automatic voice response did not complete",
+                    StringComparison.Ordinal) == true);
+        var fallback = await harness.Presentation.GetLiveAsync(sessionId);
+
+        Assert.NotNull(fallback);
+        Assert.Equal(FocusSessionState.RecoveryCheckIn, fallback.State);
+        Assert.False(fallback.AutomaticRecoveryVoiceInProgress);
+        Assert.False(fallback.AutomaticRecoveryMicrophoneActive);
+        Assert.True(fallback.CanSubmitVoiceRecovery);
+        Assert.Equal(1, voice.CallCount);
+        Assert.Single(speech.Spoken);
     }
 
     private static async Task<LiveSessionPageView?> SubmitNoResponseAsync(
@@ -606,7 +697,8 @@ public sealed class SessionRuntimePresentationTests
             IReadOnlyList<PerceptionFakeStep>? preflightSteps = null,
             RecoveryOutcome? recoveryOutcome = null,
             GoalKeeperProviderMode providerMode = GoalKeeperProviderMode.Hosted,
-            ISpeechOutputPort? speechOutput = null)
+            ISpeechOutputPort? speechOutput = null,
+            IVoiceRecoveryPort? voiceRecovery = null)
         {
             var root = Path.Combine(
                 Path.GetTempPath(),
@@ -680,7 +772,8 @@ public sealed class SessionRuntimePresentationTests
                 recoveryOutcome is { } outcome
                     ? new ProposalRecoveryPort(outcome)
                     : new DeterministicTextRecoveryFake([]),
-                clock);
+                clock,
+                voiceRecovery: voiceRecovery);
             observationSink.Target = controller;
             healthSink.Target = controller;
             var presentation = new SessionRuntimePresentation(
@@ -703,6 +796,7 @@ public sealed class SessionRuntimePresentationTests
                         Mode = providerMode
                     }
                 }),
+                voiceRecovery: voiceRecovery,
                 speechOutput: speechOutput);
             return new(
                 root,
@@ -822,6 +916,69 @@ public sealed class SessionRuntimePresentationTests
             cancellationToken.ThrowIfCancellationRequested();
             ListeningCueCount++;
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class BlockingVoiceRecoveryPort : IVoiceRecoveryPort
+    {
+        private readonly TaskCompletionSource _release =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _callCount;
+
+        public TaskCompletionSource Started { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int CallCount => Volatile.Read(ref _callCount);
+
+        public void Complete() => _release.TrySetResult();
+
+        public async Task<VoiceRecoveryPortResult> ProposeAsync(
+            RecoveryRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref _callCount);
+            Started.TrySetResult();
+            await _release.Task.WaitAsync(cancellationToken);
+            const string transcript = "I will get back to work.";
+            return new VoiceRecoveryProposalResponse(
+                transcript,
+                new(
+                    request.SessionId,
+                    request.SessionVersion,
+                    request.Intervention.InterventionId,
+                    request.NextTurnNumber,
+                    RecoveryOutcome.Recommit,
+                    transcript,
+                    null,
+                    null,
+                    false,
+                    new(request.RequestedAtUtc, request.RequestedAtUtc),
+                    new(
+                        "test",
+                        "voice-recovery-v1",
+                        "voice-recovery-v1",
+                        RecoverySchemaVersions.V1,
+                        TimeSpan.Zero,
+                        $"voice-recovery-{Guid.NewGuid():N}")));
+        }
+    }
+
+    private sealed class FailedVoiceRecoveryPort : IVoiceRecoveryPort
+    {
+        private int _callCount;
+
+        public int CallCount => Volatile.Read(ref _callCount);
+
+        public Task<VoiceRecoveryPortResult> ProposeAsync(
+            RecoveryRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Interlocked.Increment(ref _callCount);
+            return Task.FromResult<VoiceRecoveryPortResult>(
+                new VoiceRecoveryFailureResponse(
+                    VoiceRecoveryStage.Capture,
+                    RecoveryFailureCategory.ProviderUnavailable));
         }
     }
 

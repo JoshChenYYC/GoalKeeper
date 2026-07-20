@@ -21,7 +21,7 @@ The primary application is a .NET 10 interactive-server Blazor web app. The Pyth
 - A supported browser such as Microsoft Edge, Chrome, or Firefox.
 - A webcam for camera preflight and monitored sessions.
 - An OpenAI API key for a complete monitored session. Goal setup and other local-only features can be explored without one.
-- A microphone only if you want to respond to a Recovery Check-in by voice.
+- A microphone for Hosted Recovery Check-ins. After GoalKeeper asks its question aloud, it automatically opens one bounded response capture and then releases the device.
 
 Check the installed SDK from the repository root:
 
@@ -131,7 +131,7 @@ The live page shows authoritative active-focus time, projected completion, camer
 - Scheduled breaks begin and end automatically. The focus timer and behavioral evidence are paused during a break.
 - If monitoring briefly fails, GoalKeeper retries and does not count the failure as behavioral evidence. After the configured grace period, the focus timer pauses until monitoring recovers.
 - If accumulated evidence justifies an intervention, the focus timer pauses for a private **Reality check**. The tough accountability line is generated with the Reasoning decision, persisted locally, and shown identically in text and voice; evidence and uncertainty remain available underneath.
-- Enter a text explanation and select **Send response**. In Hosted mode, you can instead choose **Respond by voice**; the microphone activates only for that bounded turn.
+- In Hosted mode, GoalKeeper speaks the check-in, plays a listening cue, and automatically opens the microphone for one bounded response. Raw audio is discarded after processing. If automatic voice capture fails, use **Try voice again** or the secondary written response.
 - Use **Complete Goal** to end the session and mark its Goal complete, or **End early** to close monitoring without completing the Goal. Both actions require confirmation.
 
 The target is active-focus time, not wall-clock time, so breaks, accepted deviation intervals, and recovery interactions can move the projected end later.

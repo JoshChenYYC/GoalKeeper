@@ -325,6 +325,28 @@
     margin: 0;
 }
 
+.voice-response.active-listening {
+    border-color: #b95d45;
+    background: #fff2e9;
+}
+
+.listening-indicator {
+    width: .85rem;
+    height: .85rem;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    background: #b84f38;
+    box-shadow: 0 0 0 .35rem rgb(184 79 56 / 14%);
+    animation: listening-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes listening-pulse {
+    50% {
+        box-shadow: 0 0 0 .65rem rgb(184 79 56 / 5%);
+        transform: scale(.9);
+    }
+}
+
 .text-response {
     max-width: 44rem;
     margin-bottom: 1.25rem;
@@ -540,5 +562,9 @@
 @media (prefers-reduced-motion: reduce) {
     .progress-track > span {
         transition: none;
+    }
+
+    .listening-indicator {
+        animation: none;
     }
 }

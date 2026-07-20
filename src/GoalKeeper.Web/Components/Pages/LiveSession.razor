@@ -115,11 +115,17 @@ else
                     <div class="recovery-audio">
                         <div>
                             <strong>GoalKeeper said this aloud.</strong>
-                            <span>The microphone is still off.</span>
+                            <span>
+                                @(_view.AutomaticRecoveryMicrophoneActive
+                                    ? "Listening now."
+                                    : _view.AutomaticRecoveryVoiceInProgress
+                                        ? "The microphone opens automatically after the question."
+                                        : "Opening complete.")
+                            </span>
                         </div>
                         <button type="button"
                                 class="button secondary"
-                                disabled="@_commandInFlight"
+                                disabled="@(_commandInFlight || _view.AutomaticRecoveryVoiceInProgress)"
                                 @onclick="ReplayRecoveryOpeningAsync">
                             Replay audio
                         </button>
@@ -144,24 +150,47 @@ else
                     <p class="accountability-message">@_view.RecoveryAccountabilityMessage</p>
                     <p class="recovery-question">@RecoveryOpeningPrompt.CheckInQuestion</p>
                 }
-                @if (_view.CanSubmitVoiceRecovery)
+                @if (_view.AutomaticRecoveryVoiceInProgress)
+                {
+                    <div class="voice-response active-listening" role="status">
+                        <div>
+                            <strong>
+                                @(_view.AutomaticRecoveryMicrophoneActive
+                                    ? "Listening now"
+                                    : "GoalKeeper is speaking")
+                            </strong>
+                            <span class="field-hint">
+                                @(_view.AutomaticRecoveryMicrophoneActive
+                                    ? "MIC active. Answer out loud; capture stops automatically."
+                                    : "The microphone will open as soon as the question finishes.")
+                            </span>
+                        </div>
+                        <span class="listening-indicator" aria-hidden="true"></span>
+                    </div>
+                }
+                else if (_view.CanSubmitVoiceRecovery)
                 {
                     <div class="voice-response">
                         <div>
-                            <strong>Answer GoalKeeper</strong>
-                            <span class="field-hint">The microphone starts only after you click. Raw audio is discarded after processing.</span>
+                            <strong>Voice response available</strong>
+                            <span class="field-hint">Use this if automatic listening failed or you want to answer again.</span>
                         </div>
                         <button type="button"
                                 disabled="@_commandInFlight"
                                 @onclick="SubmitVoiceRecoveryAsync">
                             @(_voiceInFlight
                                 ? "Voice response in progress…"
-                                : "Answer by voice")
+                                : "Try voice again")
                         </button>
                     </div>
                 }
-                <details class="text-response" open="@(!_view.CanSubmitVoiceRecovery)">
-                    <summary>@(_view.CanSubmitVoiceRecovery ? "Prefer to type?" : "Respond in writing")</summary>
+                <details class="text-response"
+                         open="@(!_view.AutomaticRecoveryVoiceInProgress && !_view.CanSubmitVoiceRecovery)">
+                    <summary>
+                        @(_view.AutomaticRecoveryVoiceInProgress || _view.CanSubmitVoiceRecovery
+                            ? "Prefer to type instead?"
+                            : "Respond in writing")
+                    </summary>
                     <EditForm Model="_recovery" OnValidSubmit="SubmitRecoveryAsync">
                         <DataAnnotationsValidator />
                         <ValidationSummary />
@@ -169,9 +198,13 @@ else
                         <InputTextArea id="recovery-response"
                                        rows="4"
                                        autocomplete="off"
+                                       disabled="@_view.AutomaticRecoveryVoiceInProgress"
                                        @bind-Value="_recovery.Response" />
                         <span class="field-hint">Answer in your own words.</span>
-                        <button type="submit" disabled="@_commandInFlight">Send response</button>
+                        <button type="submit"
+                                disabled="@(_commandInFlight || _view.AutomaticRecoveryVoiceInProgress)">
+                            Send response
+                        </button>
                     </EditForm>
                 </details>
                 <details class="recovery-evidence">
@@ -281,13 +314,19 @@ else
         _ => "health paused"
     };
 
-    private string MicrophoneLabel => _voiceInFlight
-        ? "VOICE active"
+    private string MicrophoneLabel => _view?.AutomaticRecoveryMicrophoneActive == true
+        ? "MIC active"
+        : _view?.AutomaticRecoveryVoiceInProgress == true
+            ? "MIC next"
+            : _voiceInFlight
+                ? "MIC active"
         : _view?.CanSubmitVoiceRecovery == true
             ? "MIC ready"
             : "MIC off";
 
-    private string MicrophoneClass => _voiceInFlight
+    private string MicrophoneClass =>
+        _view?.AutomaticRecoveryMicrophoneActive == true ||
+        _voiceInFlight
         ? "health warning"
         : "health muted";
 
