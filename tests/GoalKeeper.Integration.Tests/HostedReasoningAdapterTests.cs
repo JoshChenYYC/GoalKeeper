@@ -43,7 +43,7 @@ public sealed class HostedReasoningAdapterTests
         Assert.Null(result.Proposal.Intervention);
         Assert.Equal("openai", result.Metadata.Provider);
         Assert.Equal("gpt-5.6-luna", result.Metadata.Model);
-        Assert.Equal("reasoning-v1", result.Metadata.PromptVersion);
+        Assert.Equal("reasoning-v2", result.Metadata.PromptVersion);
         Assert.Equal(RequestId1, result.Metadata.RequestId);
         Assert.Single(handler.Requests);
 
@@ -75,6 +75,26 @@ public sealed class HostedReasoningAdapterTests
                 .GetProperty("session_id")
                 .GetProperty("const")
                 .GetString());
+        Assert.Equal(
+            2,
+            root.GetProperty("text")
+                .GetProperty("format")
+                .GetProperty("schema")
+                .GetProperty("properties")
+                .GetProperty("schema_version")
+                .GetProperty("const")
+                .GetInt32());
+        Assert.Equal(
+            2,
+            JsonDocument.Parse(
+                    root.GetProperty("input")[0]
+                        .GetProperty("content")[0]
+                        .GetProperty("text")
+                        .GetString()!
+                        .Split('\n', 2)[1])
+                .RootElement
+                .GetProperty("schema_version")
+                .GetInt32());
 
         var instructions = root.GetProperty("instructions").GetString()!;
         var inputText = root.GetProperty("input")[0]
@@ -105,6 +125,9 @@ public sealed class HostedReasoningAdapterTests
             ReasoningDecision.BeginRecoveryCheckIn,
             result.Proposal.Decision);
         Assert.Equal(DeviationId, result.Proposal.Intervention!.ListedDeviationId);
+        Assert.Equal(
+            "The phone has had enough attention. Put it down and get back to the work you chose.",
+            result.Proposal.Intervention.AccountabilityMessage);
         var episode = Assert.Single(result.Proposal.EpisodeUpdates);
         Assert.Equal(TimeSpan.FromSeconds(2), episode.FirstObservation.CapturedAtMonotonic);
         Assert.Equal(TimeSpan.FromSeconds(2), episode.LatestObservation.CapturedAtMonotonic);
@@ -140,6 +163,26 @@ public sealed class HostedReasoningAdapterTests
         Assert.Equal(
             InputRequestText(handler.Requests[0].Body),
             InputRequestText(handler.Requests[1].Body));
+    }
+
+    [Fact]
+    public async Task Hostile_accountability_message_is_rejected_and_repaired()
+    {
+        var hostile = MutateInterventionOutput(output =>
+            output["intervention"]!["accountability_message"] =
+                "You are an idiot.");
+        var handler = new ScriptedHandler(
+            (_, _) => Task.FromResult(
+                Response(HttpStatusCode.OK, hostile, RequestId1)),
+            Success("valid-continue-response.json", RequestId2));
+        var adapter = CreateAdapter(handler);
+
+        var result = Assert.IsType<ReasoningSuccess>(
+            await adapter.EvaluateAsync(Request()));
+
+        Assert.Equal(ReasoningDecision.ContinueObserving, result.Proposal.Decision);
+        Assert.Equal(2, handler.Requests.Count);
+        Assert.Contains("invalid_output_shape", handler.Requests[1].Body);
     }
 
     [Fact]
@@ -588,6 +631,19 @@ public sealed class HostedReasoningAdapterTests
         var output = JsonNode.Parse(outputText)!.AsObject();
         mutate(output);
         envelope["output"]![1]!["content"]![0]!["text"] =
+            output.ToJsonString();
+        return envelope.ToJsonString();
+    }
+
+    private static string MutateInterventionOutput(Action<JsonObject> mutate)
+    {
+        var envelope = JsonNode.Parse(
+            Fixture("valid-intervention-response.json"))!.AsObject();
+        var outputText = envelope["output"]![0]!["content"]![0]!["text"]!
+            .GetValue<string>();
+        var output = JsonNode.Parse(outputText)!.AsObject();
+        mutate(output);
+        envelope["output"]![0]!["content"]![0]!["text"] =
             output.ToJsonString();
         return envelope.ToJsonString();
     }

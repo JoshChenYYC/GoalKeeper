@@ -19,6 +19,7 @@ public static class RecoveryLimits
     public const int MaximumSummaryLength = 4_000;
     public const int MaximumTranscriptLength = 4_000;
     public const int MaximumResponseLength = 2_000;
+    public const int MaximumAccountabilityMessageLength = 280;
     public const int MaximumMetadataLength = 160;
 }
 
@@ -103,7 +104,8 @@ public sealed record RecoveryInterventionContext
         string deviationDescription,
         string evidenceSummary,
         string rationale,
-        DateTimeOffset admittedAtUtc)
+        DateTimeOffset admittedAtUtc,
+        string? accountabilityMessage = null)
     {
         InterventionId = RecoveryGuards.Identifier(interventionId, nameof(interventionId));
         if (listedDeviationId == Guid.Empty)
@@ -124,6 +126,10 @@ public sealed record RecoveryInterventionContext
             rationale,
             nameof(rationale),
             RecoveryLimits.MaximumSummaryLength);
+        AccountabilityMessage = RecoveryGuards.OptionalText(
+            accountabilityMessage,
+            nameof(accountabilityMessage),
+            RecoveryLimits.MaximumAccountabilityMessageLength);
         AdmittedAtUtc = admittedAtUtc;
     }
 
@@ -138,6 +144,8 @@ public sealed record RecoveryInterventionContext
     public string EvidenceSummary { get; }
 
     public string Rationale { get; }
+
+    public string? AccountabilityMessage { get; }
 
     public DateTimeOffset AdmittedAtUtc { get; }
 }

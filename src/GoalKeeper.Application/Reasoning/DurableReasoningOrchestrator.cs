@@ -363,6 +363,12 @@ public sealed class DurableReasoningOrchestrator
             return ProposalValidation.Rejected("invalid_rationale");
         }
 
+        if (!AccountabilityMessagePolicy.IsAcceptable(
+                intervention.AccountabilityMessage))
+        {
+            return ProposalValidation.Rejected("invalid_accountability_message");
+        }
+
         try
         {
             var plan = _episodePolicy.Create(
@@ -402,7 +408,11 @@ public sealed class DurableReasoningOrchestrator
                 ReasoningDecision.BeginRecoveryCheckIn,
                 plan.Episode,
                 success.Proposal.Intervention!.Rationale,
-                evaluatedAt);
+                evaluatedAt)
+            {
+                AccountabilityMessage =
+                    success.Proposal.Intervention.AccountabilityMessage
+            };
             admission = await admissionHandler(
                     new(domainEvaluation, request),
                     cancellationToken)
@@ -424,7 +434,7 @@ public sealed class DurableReasoningOrchestrator
             request.SessionVersion,
             success.Proposal.Decision,
             evaluatedAt,
-            ReasoningSchemaVersions.V1,
+            ReasoningSchemaVersions.V2,
             document);
         EvidenceEpisodeWrite? episodeWrite = null;
         InterventionWrite? interventionWrite = null;
@@ -531,7 +541,7 @@ public sealed class DurableReasoningOrchestrator
             input.Runtime.Version,
             Enum.IsDefined(decision) ? decision : ReasoningDecision.ContinueObserving,
             _clock.UtcNow,
-            ReasoningSchemaVersions.V1,
+            ReasoningSchemaVersions.V2,
             document);
         var recorded = await _repository.AppendRejectedReasoningEvaluationAsync(
             evaluation,
@@ -596,7 +606,8 @@ public sealed class DurableReasoningOrchestrator
                     episode.LatestObservation.ObservationId,
                     episode.KeyObservations.Select(value => value.ObservationId).ToArray(),
                     episode.ContradictoryObservations.Select(value => value.ObservationId).ToArray(),
-                    episode.Summary));
+                    episode.Summary,
+                    "Episode memory validation does not produce a user-facing message."));
             if (deviation.RejectionReason is not null)
             {
                 return EpisodeMemoryValidation.Rejected(deviation.RejectionReason);
@@ -827,7 +838,7 @@ public sealed class DurableReasoningOrchestrator
         Safe(metadata.Model, 120) &&
         Safe(metadata.PromptVersion, 80) &&
         Safe(metadata.RequestId, 160) &&
-        metadata.SchemaVersion == ReasoningSchemaVersions.V1 &&
+        metadata.SchemaVersion == ReasoningSchemaVersions.V2 &&
         metadata.Latency >= TimeSpan.Zero;
 
     private static bool Safe(string? value, int maximumLength) =>

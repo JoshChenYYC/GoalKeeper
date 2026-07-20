@@ -6,7 +6,7 @@ The primary application is a .NET 10 interactive-server Blazor web app. The Pyth
 
 ## What the application does
 
-- Stores Goals, focus profiles, session contracts, session history, and reviews locally.
+- Stores Goals, accountability rules, session contracts, session history, and reviews locally.
 - Requires a camera preflight before every monitored session.
 - Takes still images at a fixed cadence instead of recording video.
 - Separates image perception from temporal reasoning about whether to intervene.
@@ -21,7 +21,7 @@ The primary application is a .NET 10 interactive-server Blazor web app. The Pyth
 - A supported browser such as Microsoft Edge, Chrome, or Firefox.
 - A webcam for camera preflight and monitored sessions.
 - An OpenAI API key for a complete monitored session. Goal setup and other local-only features can be explored without one.
-- A microphone only if you want to respond to a Recovery Check-in by voice.
+- A microphone for Hosted Recovery Check-ins. After GoalKeeper asks its question aloud, it automatically opens one bounded response capture and then releases the device.
 
 Check the installed SDK from the repository root:
 
@@ -45,7 +45,7 @@ The launch profile normally opens a browser at `http://localhost:5191`. If it do
 
 Stop the application with `Ctrl+C` in the terminal.
 
-Disabled mode lets you create and edit local Goals and the Focus profile, prepare a contract, and initiate a camera capture. It cannot pass preflight because preflight requires AI perception to confirm image quality and that exactly one person is visible. Configure Hosted mode to run a complete Focus Session.
+Disabled mode lets you create and edit local Goals and accountability rules, prepare a contract, and initiate a camera capture. It cannot pass preflight because preflight requires AI perception to confirm image quality and that exactly one person is visible. Configure Hosted mode to run a complete Focus Session.
 
 ### 2. Enable hosted AI
 
@@ -78,16 +78,22 @@ Remove-Item Env:GoalKeeper__Providers__Mode -ErrorAction SilentlyContinue
 
 ## Use GoalKeeper
 
-### 1. Create a Focus profile
+### 1. Create or select a Goal
 
-Open **Focus profile** in the top navigation before preparing your first session.
+Open **Home**, enter a required title and an optional description, and select **Create Goal**. Home guides a first session from Goal, to accountability rules, to session setup. Use **Edit** on a Goal card to update it or to perform a confirmed deletion.
 
-1. Give the profile a name.
-2. Enter one visible deviation per line, such as `Sustained attention to a phone` or `Leaving the camera view`.
-3. Choose how visually observable the entered behaviors are.
-4. Select **Save profile**.
+A Goal with an active Focus Session is locked against editing and deletion. Marking a Goal complete is permanent in the current prototype and replaces its start action with **View history**.
 
-At least one deviation is required. Changes to the reusable profile affect future session contracts only; a confirmed contract retains its original profile snapshot.
+### 2. Define accountability rules
+
+Follow the guided Home action or open **Accountability rules** in the top navigation.
+
+1. Give the rules a name.
+2. Under **Call me out when…**, enter one visible behavior per line, such as `Sustained attention to a phone` or `Leaving the camera view`.
+3. Choose how visible those behaviors are to the camera.
+4. Select **Save accountability rules**.
+
+At least one behavior is required. Changes to reusable rules affect future session contracts only; a confirmed contract retains its original rules snapshot.
 
 The observability choices are:
 
@@ -95,22 +101,16 @@ The observability choices are:
 - `PartiallyObservable`: the camera may provide useful but incomplete evidence.
 - `NotObservable`: the behavior is unlikely to be reliably judged from room images.
 
-### 2. Create a Goal
-
-Open **Goals**, enter a required title and an optional description, and select **Create Goal**. Use **Edit** on a Goal card to update it or to perform a confirmed deletion.
-
-A Goal with an active Focus Session is locked against editing and deletion. Marking a Goal complete is permanent in the current prototype and prevents new sessions for that Goal.
-
 ### 3. Prepare the Session Contract
 
-Select **Prepare session** on a Goal card, then configure:
+Select **Start session** on an active Goal card, then configure:
 
-- **Target focus:** active-focus minutes, from 1 to 1,440. Scheduled breaks and recovery time do not count toward this target.
-- **Scheduled Breaks:** optional `offset:duration` pairs, one per line, expressed in minutes. For example, `25:5` starts a five-minute break after 25 minutes of active focus. Offsets must be positive, unique, and earlier than the focus target.
-- **Reasoning mode:** `ProfileOnly` limits interventions to deviations in the profile snapshot; `Exploratory` also permits a clearly identified unlisted behavior when the evidence suggests it conflicts with the Goal.
-- **Sensitivity:** `Strict`, `Balanced`, or `Relaxed` is a qualitative instruction to the reasoning model.
+- **Focus time:** active-focus minutes, from 1 to 1,440. Planned breaks and recovery time do not count toward this target.
+- **Planned breaks:** optional. Write when the break should start, then how long it should last, separated by a colon. For example, `25:5` means “after 25 minutes of focus, take a five-minute break.” Add each additional break on a new line. Break start times must be positive, unique, and earlier than the focus target.
+- **What may GoalKeeper call out?:** limit interventions to the accountability-rules snapshot or permit a clearly identified unlisted behavior when evidence suggests it conflicts with the Goal.
+- **How quickly should GoalKeeper step in?:** choose sooner, balanced, or only with stronger evidence.
 
-Select **Confirm immutable contract**. After confirmation, the contract cannot be changed. A future session for the same Goal is prefilled from its most recent contract and creates a new immutable snapshot when confirmed.
+Select **Lock session plan and continue**. After confirmation, the contract cannot be changed. A future session for the same Goal is prefilled from its most recent contract and creates a new immutable snapshot when confirmed.
 
 ### 4. Complete camera preflight
 
@@ -121,7 +121,7 @@ Select **Confirm immutable contract**. After confirmation, the contract cannot b
 5. When the preview is accepted, verify that the view is correct and only you are visible.
 6. Select **Confirm and start focus**.
 
-Preflight requires exactly one visible person and an adequate image. The microphone is never used during preflight. **Cancel setup** releases the camera and returns to Goals without starting a Focus Session.
+Preflight requires exactly one visible person and an adequate image. The microphone is never used during preflight. **Cancel setup** releases the camera and returns Home without starting a Focus Session.
 
 ### 5. Work through a live session
 
@@ -130,8 +130,8 @@ The live page shows authoritative active-focus time, projected completion, camer
 - GoalKeeper normally captures one still image every 10 seconds. It does not capture video, the screen, keyboard input, or operating-system activity.
 - Scheduled breaks begin and end automatically. The focus timer and behavioral evidence are paused during a break.
 - If monitoring briefly fails, GoalKeeper retries and does not count the failure as behavioral evidence. After the configured grace period, the focus timer pauses until monitoring recovers.
-- If accumulated evidence justifies an intervention, the focus timer pauses for a private Recovery Check-in.
-- Enter a text explanation and select **Send response**. In Hosted mode, you can instead choose **Respond by voice**; the microphone activates only for that bounded turn.
+- If accumulated evidence justifies an intervention, the focus timer pauses for a private **Reality check**. The tough accountability line is generated with the Reasoning decision, persisted locally, and shown identically in text and voice; evidence and uncertainty remain available underneath.
+- In Hosted mode, GoalKeeper speaks the check-in, plays a listening cue, and automatically opens the microphone for one bounded response. Raw audio is discarded after processing. If automatic voice capture fails, use **Try voice again** or the secondary written response.
 - Use **Complete Goal** to end the session and mark its Goal complete, or **End early** to close monitoring without completing the Goal. Both actions require confirmation.
 
 The target is active-focus time, not wall-clock time, so breaks, accepted deviation intervals, and recovery interactions can move the projected end later.

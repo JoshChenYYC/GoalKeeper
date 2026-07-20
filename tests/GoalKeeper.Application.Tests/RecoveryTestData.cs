@@ -36,7 +36,8 @@ internal static class RecoveryTestData
                 "Sustained attention to a phone",
                 "Phone-directed posture remained visible across three observations.",
                 "The cited pattern may conflict with the confirmed Goal.",
-                RequestedAtUtc.AddMinutes(-1)),
+                RequestedAtUtc.AddMinutes(-1),
+                "The phone has had its turn. Put it down and finish the report you chose."),
             new RecoveryDisputedInterval(
                 TimeSpan.FromMinutes(10),
                 TimeSpan.FromMinutes(12)),

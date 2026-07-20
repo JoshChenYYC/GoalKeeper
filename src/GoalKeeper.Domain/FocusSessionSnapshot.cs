@@ -29,7 +29,10 @@ public sealed record ReasoningEvaluationSnapshot(
     ReasoningDecision Decision,
     EvidenceEpisodeSnapshot? EvidenceEpisode,
     string? Rationale,
-    DateTimeOffset EvaluatedAtUtc);
+    DateTimeOffset EvaluatedAtUtc)
+{
+    public string? AccountabilityMessage { get; init; }
+}
 
 public sealed record InterventionSnapshot(
     Guid Id,

@@ -6,13 +6,13 @@ namespace GoalKeeper.Infrastructure.Reasoning;
 
 internal static class ReasoningPromptAssets
 {
-    public const string PromptVersion = "reasoning-v1";
+    public const string PromptVersion = "reasoning-v2";
 
     private const string PromptResourceSuffix =
-        ".Reasoning.Assets.reasoning-v1.prompt.txt";
+        ".Reasoning.Assets.reasoning-v2.prompt.txt";
 
     private const string SchemaResourceSuffix =
-        ".Reasoning.Assets.reasoning-v1.schema.json";
+        ".Reasoning.Assets.reasoning-v2.schema.json";
 
     private static readonly Lazy<string> PromptAsset = new(
         () => ReadResource(PromptResourceSuffix));

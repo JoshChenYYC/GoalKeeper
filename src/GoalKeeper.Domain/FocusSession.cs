@@ -665,7 +665,8 @@ public sealed class FocusSession
             evaluation.Decision,
             evaluation.EvidenceEpisode,
             evaluation.Rationale,
-            evaluation.EvaluatedAtUtc);
+            evaluation.EvaluatedAtUtc,
+            evaluation.AccountabilityMessage);
     }
 
     private static InterventionSnapshot Snapshot(Intervention value) =>
@@ -684,7 +685,10 @@ public sealed class FocusSession
             value.Decision,
             value.EvidenceEpisode is null ? null : Snapshot(value.EvidenceEpisode),
             value.Rationale,
-            value.EvaluatedAtUtc);
+            value.EvaluatedAtUtc)
+        {
+            AccountabilityMessage = value.AccountabilityMessage
+        };
 
     private static EvidenceEpisodeSnapshot Snapshot(EvidenceEpisode value) =>
         new(
@@ -755,7 +759,8 @@ public sealed class FocusSession
             value.Decision,
             episode,
             value.Rationale,
-            value.EvaluatedAtUtc);
+            value.EvaluatedAtUtc,
+            value.AccountabilityMessage);
     }
 
     private static EvidenceEpisode RehydrateEpisode(EvidenceEpisodeSnapshot value) =>

@@ -55,7 +55,12 @@ public sealed record LiveSessionPageView(
     DateTimeOffset ProjectedEndUtc,
     bool MonitoringActive,
     string? TechnicalFailure,
-    string? RecoveryPrompt,
+    string? RecoveryAccountabilityMessage,
+    string? RecoveryEvidenceContext,
+    bool CanReplayRecoveryOpening,
+    string? RecoveryAudioNotice,
+    bool AutomaticRecoveryVoiceInProgress,
+    bool AutomaticRecoveryMicrophoneActive,
     bool CanCompleteGoal,
     bool CanEndEarly,
     bool CanSubmitRecovery,
@@ -82,6 +87,7 @@ public interface ISessionRuntimePresentation
     Task<LiveSessionPageView?> EndEarlyAsync(Guid sessionId, CancellationToken cancellationToken = default);
     Task<LiveSessionPageView?> SubmitRecoveryAsync(Guid sessionId, string response, CancellationToken cancellationToken = default);
     Task<LiveSessionPageView?> SubmitVoiceRecoveryAsync(Guid sessionId, CancellationToken cancellationToken = default);
+    Task<LiveSessionPageView?> ReplayRecoveryOpeningAsync(Guid sessionId, CancellationToken cancellationToken = default);
     Task<LiveSessionPageView?> ReturnToRecoveryAsync(Guid sessionId, CancellationToken cancellationToken = default);
 }
 
@@ -90,15 +96,23 @@ public sealed class SessionRuntimePresentation(
     IGoalKeeperRepository repository,
     IOptions<SessionRuntimeUiOptions> options,
     IOptions<GoalKeeperOperationalOptions> operationalOptions,
-    IVoiceRecoveryPort? voiceRecovery = null) : ISessionRuntimePresentation, IDisposable
+    IVoiceRecoveryPort? voiceRecovery = null,
+    ISpeechOutputPort? speechOutput = null) : ISessionRuntimePresentation, IDisposable
 {
     private readonly SemaphoreSlim _commands = new(1, 1);
     private readonly SemaphoreSlim _preflightCommands = new(1, 1);
+    private readonly SemaphoreSlim _recoveryAudio = new(1, 1);
+    private readonly object _recoveryAudioSync = new();
     private readonly SessionRuntimeUiOptions _options = options.Value;
     private readonly bool _hostedProvidersEnabled =
         operationalOptions.Value.Providers.Mode == GoalKeeperProviderMode.Hosted;
     private PreflightPageView? _activePreflightView;
     private SessionStartDiagnostic? _lastSessionStart;
+    private Guid? _automaticRecoveryInterventionId;
+    private Guid? _automaticRecoveryInProgressId;
+    private Guid? _automaticMicrophoneInterventionId;
+    private Guid? _recoveryAutomationNoticeId;
+    private string? _recoveryAutomationNotice;
 
     public async Task<PreflightPageView> GetPreflightAsync(
         Guid setupId,
@@ -280,6 +294,7 @@ public sealed class SessionRuntimePresentation(
         string response,
         CancellationToken cancellationToken = default)
     {
+        ThrowIfAutomaticRecoveryIsRunning();
         if (string.IsNullOrWhiteSpace(response))
         {
             throw new ArgumentException("Tell GoalKeeper what happened before continuing.", nameof(response));
@@ -294,6 +309,7 @@ public sealed class SessionRuntimePresentation(
         Guid sessionId,
         CancellationToken cancellationToken = default)
     {
+        ThrowIfAutomaticRecoveryIsRunning();
         if (voiceRecovery is null)
         {
             throw new InvalidOperationException("Voice Recovery is not configured.");
@@ -301,6 +317,42 @@ public sealed class SessionRuntimePresentation(
 
         await EnsureCurrentSessionAsync(sessionId, cancellationToken);
         await controller.SubmitVoiceRecoveryAsync(cancellationToken);
+        return await LoadLiveAsync(sessionId, cancellationToken);
+    }
+
+    public async Task<LiveSessionPageView?> ReplayRecoveryOpeningAsync(
+        Guid sessionId,
+        CancellationToken cancellationToken = default)
+    {
+        ThrowIfAutomaticRecoveryIsRunning();
+        if (speechOutput is null)
+        {
+            throw new InvalidOperationException("Recovery audio is not configured.");
+        }
+
+        await EnsureCurrentSessionAsync(sessionId, cancellationToken);
+        var live = await controller.GetLiveStatusAsync(sessionId, cancellationToken);
+        if (live is not
+            {
+                CanSubmitRecovery: true,
+                RecoveryInterventionId: { } interventionId,
+                RecoveryAccountabilityMessage: { } accountabilityMessage
+            })
+        {
+            throw new InvalidOperationException(
+                "There is no active Recovery opening to replay.");
+        }
+
+        await SpeakRecoveryOpeningAsync(accountabilityMessage, cancellationToken);
+        lock (_recoveryAudioSync)
+        {
+            if (_automaticRecoveryInterventionId == interventionId)
+            {
+                _recoveryAutomationNoticeId = null;
+                _recoveryAutomationNotice = null;
+            }
+        }
+
         return await LoadLiveAsync(sessionId, cancellationToken);
     }
 
@@ -360,6 +412,7 @@ public sealed class SessionRuntimePresentation(
             return null;
         }
 
+        var automation = StartAutomaticRecovery(live);
         return new(
             live.SessionId,
             live.GoalTitle,
@@ -373,17 +426,172 @@ public sealed class SessionRuntimePresentation(
             live.ProjectedEndUtc,
             live.MonitoringActive,
             live.TechnicalFailure,
-            live.RecoveryPrompt,
+            live.RecoveryAccountabilityMessage,
+            live.RecoveryEvidenceContext,
+            live.CanSubmitRecovery &&
+            live.RecoveryAccountabilityMessage is not null &&
+            speechOutput is not null,
+            automation.Notice,
+            automation.InProgress,
+            automation.MicrophoneActive,
             live.CanCompleteGoal,
             live.CanEndEarly,
             live.CanSubmitRecovery,
-            live.CanSubmitRecovery && voiceRecovery is not null,
+            live.CanSubmitRecovery &&
+            voiceRecovery is not null &&
+            !automation.InProgress,
             live.CanReturnToRecovery,
             live.IsTerminal,
             live.EndedEarlyReason,
             _lastSessionStart is { } diagnostic && diagnostic.SessionId == live.SessionId
                 ? diagnostic.Duration
                 : null);
+    }
+
+    private RecoveryAutomationView StartAutomaticRecovery(
+        SessionLiveStatus live)
+    {
+        if (speechOutput is null ||
+            !live.CanSubmitRecovery ||
+            live.RecoveryInterventionId is not { } interventionId ||
+            live.RecoveryAccountabilityMessage is not { } accountabilityMessage)
+        {
+            lock (_recoveryAudioSync)
+            {
+                return new(
+                    _automaticRecoveryInProgressId is not null,
+                    _automaticMicrophoneInterventionId is not null,
+                    null);
+            }
+        }
+
+        lock (_recoveryAudioSync)
+        {
+            if (_automaticRecoveryInterventionId != interventionId)
+            {
+                _automaticRecoveryInterventionId = interventionId;
+                _automaticRecoveryInProgressId = interventionId;
+                _automaticMicrophoneInterventionId = null;
+                _recoveryAutomationNoticeId = null;
+                _recoveryAutomationNotice = null;
+                _ = RunAutomaticRecoveryAsync(
+                    interventionId,
+                    accountabilityMessage);
+            }
+
+            return AutomationView(interventionId);
+        }
+    }
+
+    private async Task RunAutomaticRecoveryAsync(
+        Guid interventionId,
+        string accountabilityMessage)
+    {
+        await Task.Yield();
+        try
+        {
+            try
+            {
+                await SpeakRecoveryOpeningAsync(
+                    accountabilityMessage,
+                    CancellationToken.None);
+            }
+            catch
+            {
+                SetAutomationNotice(
+                    interventionId,
+                    "Audio playback did not start. Read the check-in below or try Replay audio.");
+                return;
+            }
+
+            if (voiceRecovery is null)
+            {
+                return;
+            }
+
+            lock (_recoveryAudioSync)
+            {
+                if (_automaticRecoveryInterventionId == interventionId)
+                {
+                    _automaticMicrophoneInterventionId = interventionId;
+                }
+            }
+
+            var result = await controller.SubmitVoiceRecoveryAsync(
+                CancellationToken.None);
+            if (result?.State == FocusSessionState.RecoveryCheckIn)
+            {
+                SetAutomationNotice(
+                    interventionId,
+                    "Automatic voice response did not complete. Try voice again or type your answer.");
+            }
+        }
+        catch
+        {
+            SetAutomationNotice(
+                interventionId,
+                "Automatic voice response did not complete. Try voice again or type your answer.");
+        }
+        finally
+        {
+            lock (_recoveryAudioSync)
+            {
+                if (_automaticRecoveryInterventionId == interventionId)
+                {
+                    _automaticRecoveryInProgressId = null;
+                    _automaticMicrophoneInterventionId = null;
+                }
+            }
+        }
+    }
+
+    private void SetAutomationNotice(Guid interventionId, string notice)
+    {
+        lock (_recoveryAudioSync)
+        {
+            if (_automaticRecoveryInterventionId == interventionId)
+            {
+                _recoveryAutomationNoticeId = interventionId;
+                _recoveryAutomationNotice = notice;
+            }
+        }
+    }
+
+    private RecoveryAutomationView AutomationView(Guid interventionId) =>
+        new(
+            _automaticRecoveryInProgressId == interventionId,
+            _automaticMicrophoneInterventionId == interventionId,
+            _recoveryAutomationNoticeId == interventionId
+                ? _recoveryAutomationNotice
+                : null);
+
+    private void ThrowIfAutomaticRecoveryIsRunning()
+    {
+        lock (_recoveryAudioSync)
+        {
+            if (_automaticRecoveryInProgressId is not null)
+            {
+                throw new InvalidOperationException(
+                    "GoalKeeper is already listening for the automatic voice response.");
+            }
+        }
+    }
+
+    private async Task SpeakRecoveryOpeningAsync(
+        string accountabilityMessage,
+        CancellationToken cancellationToken)
+    {
+        await _recoveryAudio.WaitAsync(cancellationToken);
+        try
+        {
+            await speechOutput!.SpeakAsync(
+                RecoveryOpeningPrompt.Create(accountabilityMessage),
+                cancellationToken);
+        }
+        finally
+        {
+            _recoveryAudio.Release();
+        }
     }
 
     private async Task<SessionSetupView> RequireReadySetupAsync(
@@ -493,7 +701,13 @@ public sealed class SessionRuntimePresentation(
     {
         _commands.Dispose();
         _preflightCommands.Dispose();
+        _recoveryAudio.Dispose();
     }
 
     private sealed record SessionStartDiagnostic(Guid SessionId, TimeSpan Duration);
+
+    private readonly record struct RecoveryAutomationView(
+        bool InProgress,
+        bool MicrophoneActive,
+        string? Notice);
 }

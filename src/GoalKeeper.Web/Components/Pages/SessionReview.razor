@@ -14,7 +14,7 @@ else if (_view is null)
         <p class="eyebrow">Review unavailable</p>
         <h1>This Focus Session could not be reviewed.</h1>
         <p>@_error</p>
-        <a class="button" href="/">Return to goals</a>
+        <a class="button" href="/">Return Home</a>
     </section>
 }
 else if (_view.State is not (FocusSessionState.Fulfilled or FocusSessionState.EndedEarly))
@@ -24,7 +24,7 @@ else if (_view.State is not (FocusSessionState.Fulfilled or FocusSessionState.En
         <h1>The review opens after the Focus Session ends.</h1>
         <div class="actions centered">
             <a class="button" href="@($"/sessions/{SessionId}/live")">Return to session</a>
-            <a class="button secondary" href="/">Return to goals</a>
+            <a class="button secondary" href="/">Return Home</a>
         </div>
     </section>
 }
@@ -35,7 +35,7 @@ else if (_view.Review is not null)
         <h1>This Session Review is complete.</h1>
         <p>Your optional reflection was accepted once and is now part of the local session history.</p>
         <div class="actions">
-            <a class="button" href="/">Return to goals</a>
+            <a class="button" href="/">Return Home</a>
             <a class="button secondary" href="@($"/goals/{_view.GoalId}/history")">View Goal history</a>
         </div>
     </section>
@@ -85,7 +85,7 @@ else
 
             <div class="actions">
                 <button type="submit" disabled="@_submitting">Save review</button>
-                <button type="button" class="secondary" disabled="@_submitting" @onclick="Skip">Skip and return to goals</button>
+                <button type="button" class="secondary" disabled="@_submitting" @onclick="Skip">Skip and return Home</button>
                 <a class="button secondary" href="@($"/goals/{_view.GoalId}/history")">View Goal history</a>
             </div>
         </EditForm>

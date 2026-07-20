@@ -8,6 +8,7 @@ namespace GoalKeeper.Application.Reasoning;
 public static class ReasoningSchemaVersions
 {
     public const int V1 = 1;
+    public const int V2 = 2;
 }
 
 public static class ReasoningLimits
@@ -21,6 +22,7 @@ public static class ReasoningLimits
     public const int ContractDeviations = 64;
     public const int MaximumTextLength = 320;
     public const int MaximumRationaleLength = 640;
+    public const int MaximumAccountabilityMessageLength = 280;
     public const int MaximumSerializedRequestBytes = 512 * 1024;
 }
 
@@ -146,7 +148,8 @@ public sealed record ReasoningInterventionProposal(
     Guid LatestObservationId,
     IReadOnlyList<Guid> KeyObservationIds,
     IReadOnlyList<Guid> ContradictoryObservationIds,
-    string Rationale);
+    string Rationale,
+    string AccountabilityMessage);
 
 public sealed record ReasoningProposal(
     Guid SessionId,

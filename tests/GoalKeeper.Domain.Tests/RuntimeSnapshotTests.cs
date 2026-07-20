@@ -1,10 +1,44 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using GoalKeeper.Domain;
 
 namespace GoalKeeper.Domain.Tests;
 
 public sealed class RuntimeSnapshotTests
 {
+    [Fact]
+    public void V1_runtime_snapshot_without_accountability_message_remains_readable()
+    {
+        var clock = new FakeClock();
+        var (goal, contract, session, deviation) = Start(clock);
+        session.AdmitIntervention(InterventionEvaluation(session, deviation, clock));
+        var node = JsonNode.Parse(
+            JsonSerializer.Serialize(session.CreateSnapshot()))!;
+        var evaluation = node["ActiveIntervention"]!["Evaluation"]!.AsObject();
+        Assert.True(evaluation.Remove("AccountabilityMessage"));
+
+        var stored = JsonSerializer.Deserialize<FocusSessionRuntimeSnapshot>(
+            node.ToJsonString())!;
+        var restoredGoal = Goal.Rehydrate(
+            goal.Id,
+            goal.Title,
+            goal.Description,
+            goal.Status,
+            goal.CreatedAtUtc,
+            goal.CompletedAtUtc);
+        var restored = FocusSession.Rehydrate(
+            restoredGoal,
+            contract,
+            stored,
+            clock);
+
+        Assert.Equal(FocusSessionState.RecoveryCheckIn, restored.State);
+        Assert.Null(restored.CreateSnapshot()
+            .ActiveIntervention!
+            .Evaluation
+            .AccountabilityMessage);
+    }
+
     [Theory]
     [InlineData(FocusSessionState.Focusing)]
     [InlineData(FocusSessionState.ScheduledBreak)]

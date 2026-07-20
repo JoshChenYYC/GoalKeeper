@@ -1,67 +1,242 @@
-﻿@page "/"
+@page "/"
+@inject SetupWorkflow Workflow
+@inject NavigationManager Navigation
 
-<PageTitle>Goals · GoalKeeper</PageTitle>
+<PageTitle>Home · GoalKeeper</PageTitle>
 
-<h1>Goals</h1>
-<p class="lede">Create a durable intention, then prepare a focused session around it.</p>
+<p class="eyebrow">Your focus workspace</p>
+<h1>Home</h1>
+<p class="lede">Choose what matters, decide what GoalKeeper should call out, then lock in a focus session.</p>
 
-<section class="panel">
-    <h2>New Goal</h2>
-    <EditForm Model="_form" OnValidSubmit="CreateGoalAsync">
-        <DataAnnotationsValidator />
-        <ValidationSummary />
-        <label>Title <InputText @bind-Value="_form.Title" /></label>
-        <label>Description <InputTextArea @bind-Value="_form.Description" /></label>
-        <button type="submit">Create Goal</button>
-    </EditForm>
-    @if (_error is not null) { <p class="error">@_error</p> }
-</section>
-
-<section class="stack">
-    @if (_goals.Count == 0)
+@if (!_loaded)
+{
+    <p class="empty">Loading your workspace…</p>
+}
+else
+{
+    @if (NeedsGuidance)
     {
-        <p class="empty">No Goals yet.</p>
+        <section class="onboarding" aria-labelledby="onboarding-title">
+            <div class="onboarding-heading">
+                <div>
+                    <p class="eyebrow">First session</p>
+                    <h2 id="onboarding-title">Three steps. No guesswork.</h2>
+                </div>
+                <span>@CompletedStepCount of 3 ready</span>
+            </div>
+            <ol class="onboarding-steps">
+                <li class="@StepClass(1)">
+                    <span class="step-number">1</span>
+                    <div>
+                        <strong>Create or select a Goal</strong>
+                        <span>Give this session a clear destination.</span>
+                    </div>
+                </li>
+                <li class="@StepClass(2)">
+                    <span class="step-number">2</span>
+                    <div>
+                        <strong>Define accountability rules</strong>
+                        <span>Tell GoalKeeper what visible behavior to call out.</span>
+                    </div>
+                </li>
+                <li class="@StepClass(3)">
+                    <span class="step-number">3</span>
+                    <div>
+                        <strong>Start the session</strong>
+                        <span>Lock the plan, check the camera, and focus.</span>
+                    </div>
+                </li>
+            </ol>
+
+            @if (ActiveStep == 1)
+            {
+                <div class="onboarding-action">
+                    <h3>Create your first Goal</h3>
+                    <p>A Goal is the reason for the session—not another setting to configure.</p>
+                    @GoalForm
+                </div>
+            }
+            else if (ActiveStep == 2 && SelectedGoal is { } rulesGoal)
+            {
+                <div class="onboarding-action">
+                    <p class="eyebrow">Goal selected</p>
+                    <h3>@rulesGoal.Title</h3>
+                    <p>Now decide which camera-visible choices GoalKeeper should challenge during focus.</p>
+                    <a class="button" href="@RulesHref(rulesGoal.Id)">Define accountability rules</a>
+                </div>
+            }
+            else if (SelectedGoal is { } readyGoal)
+            {
+                <div class="onboarding-action">
+                    <p class="eyebrow">Ready to focus</p>
+                    <h3>@readyGoal.Title</h3>
+                    <p>Your Goal and accountability rules are ready. Set the session length and lock the plan.</p>
+                    <a class="button" href="@($"/sessions/setup/{readyGoal.Id}")">Start session</a>
+                </div>
+            }
+        </section>
     }
-    @foreach (var goal in _goals)
+    else
     {
-        <article class="goal-card">
+        <section class="home-ready">
             <div>
-                <h2>@goal.Title</h2>
-                @if (goal.Description is not null) { <p>@goal.Description</p> }
+                <p class="eyebrow">Ready when you are</p>
+                <h2>Pick the Goal for this session.</h2>
             </div>
-            <div class="actions">
-                <a class="button secondary" href="@($"/goals/{goal.Id}/edit")">Edit</a>
-                <a class="button" href="@($"/sessions/setup/{goal.Id}")">Prepare session</a>
-            </div>
-        </article>
+            <a class="button secondary" href="/profile?returnTo=%2F">Edit accountability rules</a>
+        </section>
     }
-</section>
+
+    <section class="home-grid">
+        <div class="stack">
+            <div class="section-heading">
+                <h2>Your Goals</h2>
+                <span>@_goals.Count total</span>
+            </div>
+            @if (_goals.Count == 0)
+            {
+                <p class="empty">No Goals yet. Create one above to begin.</p>
+            }
+            @foreach (var goal in _goals)
+            {
+                <article class="goal-card @(goal.Id == SelectedGoal?.Id ? "selected-goal" : null)">
+                    <div>
+                        <span class="goal-status">@GoalStatusLabel(goal)</span>
+                        <h3>@goal.Title</h3>
+                        @if (goal.Description is not null)
+                        {
+                            <p>@goal.Description</p>
+                        }
+                    </div>
+                    <div class="actions">
+                        <a class="button secondary" href="@($"/goals/{goal.Id}/edit")">Edit</a>
+                        @if (goal.Status == GoalStatus.Completed)
+                        {
+                            <a class="button" href="@($"/goals/{goal.Id}/history")">View history</a>
+                        }
+                        else if (_profile is null)
+                        {
+                            <a class="button" href="@SelectGoalHref(goal.Id)">Select Goal</a>
+                        }
+                        else
+                        {
+                            <a class="button" href="@($"/sessions/setup/{goal.Id}")">Start session</a>
+                        }
+                    </div>
+                </article>
+            }
+        </div>
+
+        @if (!NeedsGuidance)
+        {
+            <aside class="panel compact-panel">
+                <h2>Create another Goal</h2>
+                <p>Keep it specific enough that a focus session has an obvious next action.</p>
+                @GoalForm
+            </aside>
+        }
+    </section>
+}
+
+@if (_error is not null)
+{
+    <p class="error" role="alert">@_error</p>
+}
 
 @code {
-    [Inject] private SetupWorkflow Workflow { get; set; } = null!;
-    private readonly GoalForm _form = new();
-    private IReadOnlyList<GoalView> _goals = [];
-    private string? _error;
+    [Parameter, SupplyParameterFromQuery(Name = "goal")]
+    public Guid? SelectedGoalId { get; set; }
 
-    protected override async Task OnInitializedAsync() => _goals = await Workflow.ListGoalsAsync();
+    [Parameter, SupplyParameterFromQuery(Name = "guide")]
+    public bool Guide { get; set; }
+
+    private readonly GoalFormModel _form = new();
+    private IReadOnlyList<GoalView> _goals = [];
+    private DeviationProfileView? _profile;
+    private string? _error;
+    private bool _loaded;
+
+    private GoalView? SelectedGoal =>
+        _goals.FirstOrDefault(goal =>
+            goal.Status == GoalStatus.Active &&
+            goal.Id == SelectedGoalId) ??
+        _goals.FirstOrDefault(goal => goal.Status == GoalStatus.Active);
+
+    private bool NeedsGuidance =>
+        _goals.Count == 0 ||
+        (SelectedGoal is not null && (_profile is null || Guide));
+
+    private int ActiveStep =>
+        SelectedGoal is null ? 1 :
+        _profile is null ? 2 : 3;
+
+    private int CompletedStepCount =>
+        (SelectedGoal is null ? 0 : 1) +
+        (_profile is null ? 0 : 1);
+
+    private RenderFragment GoalForm => @<div class="goal-form">
+        <EditForm Model="_form" OnValidSubmit="CreateGoalAsync">
+            <DataAnnotationsValidator />
+            <ValidationSummary />
+            <label>Goal title <InputText @bind-Value="_form.Title" /></label>
+            <label>Why it matters <InputTextArea rows="3" @bind-Value="_form.Description" /></label>
+            <button type="submit">Create Goal</button>
+        </EditForm>
+    </div>;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _goals = await Workflow.ListGoalsAsync();
+        _profile = await Workflow.GetProfileAsync();
+        _loaded = true;
+    }
 
     private async Task CreateGoalAsync()
     {
         try
         {
-            await Workflow.CreateGoalAsync(_form.Title, _form.Description);
+            var created = await Workflow.CreateGoalAsync(
+                _form.Title,
+                _form.Description);
             _form.Title = "";
             _form.Description = null;
-            _goals = await Workflow.ListGoalsAsync();
             _error = null;
+            Navigation.NavigateTo(GuidedGoalHref(created.Id));
         }
-        catch (Exception exception) { _error = exception.Message; }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
     }
 
-    private sealed class GoalForm
+    private string StepClass(int step) =>
+        step switch
+        {
+            1 when SelectedGoal is not null => "complete",
+            2 when _profile is not null => "complete",
+            _ when step == ActiveStep => "active",
+            _ => "pending"
+        };
+
+    private string RulesHref(Guid goalId) =>
+        $"/profile?returnTo={Uri.EscapeDataString(GuidedGoalHref(goalId))}";
+
+    private static string SelectGoalHref(Guid goalId) =>
+        $"/?goal={goalId:D}";
+
+    private static string GuidedGoalHref(Guid goalId) =>
+        $"{SelectGoalHref(goalId)}&guide=true";
+
+    private static string GoalStatusLabel(GoalView goal) =>
+        goal.Status == GoalStatus.Completed
+            ? $"Completed {goal.CompletedAtUtc?.ToLocalTime():MMM d, yyyy}"
+            : "Active Goal";
+
+    private sealed class GoalFormModel
     {
         [System.ComponentModel.DataAnnotations.Required]
         public string Title { get; set; } = "";
+
         public string? Description { get; set; }
     }
 }

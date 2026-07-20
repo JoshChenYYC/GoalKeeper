@@ -14,7 +14,7 @@ else if (_view is null)
         <p class="eyebrow">History unavailable</p>
         <h1>This Goal could not be found.</h1>
         <p>@_error</p>
-        <a class="button" href="/">Return to goals</a>
+        <a class="button" href="/">Return Home</a>
     </section>
 }
 else
@@ -71,10 +71,10 @@ else
                         <dl>
                             <dt>Focus target</dt><dd>@FormatDuration(session.TargetFocusDuration)</dd>
                             <dt>Scheduled Breaks</dt><dd>@BreakSummary(session.ScheduledBreaks)</dd>
-                            <dt>Deviation Profile</dt><dd>@session.DeviationProfileName</dd>
+                            <dt>Accountability rules</dt><dd>@session.DeviationProfileName</dd>
                             <dt>Deviations</dt><dd>@DeviationSummary(session.Deviations)</dd>
-                            <dt>Reasoning mode</dt><dd>@FormatEnum(session.ReasoningMode.ToString())</dd>
-                            <dt>Sensitivity</dt><dd>@session.Sensitivity</dd>
+                            <dt>GoalKeeper may call out</dt><dd>@FormatEnum(session.ReasoningMode.ToString())</dd>
+                            <dt>Intervention timing</dt><dd>@session.Sensitivity</dd>
                             <dt>Confirmed</dt><dd>@session.ConfirmedAtUtc.ToLocalTime().ToString("MMM d, yyyy · h:mm tt")</dd>
                         </dl>
                     </details>

@@ -1,28 +1,50 @@
 @page "/profile"
 @inject SetupWorkflow Workflow
+@inject NavigationManager Navigation
 
-<PageTitle>Deviation Profile · GoalKeeper</PageTitle>
-<h1>Deviation Profile</h1>
-<p class="lede">Describe visible patterns that may justify a supportive check-in. One Deviation per line.</p>
+<PageTitle>Accountability rules · GoalKeeper</PageTitle>
+<p class="eyebrow">Reusable setup</p>
+<h1>Accountability rules</h1>
+<p class="lede">What visible behavior should GoalKeeper call you out for? These rules can be reused, while every session keeps the exact snapshot it started with.</p>
 
-<section class="panel">
+<section class="panel rules-panel">
     <EditForm Model="_form" OnValidSubmit="SaveAsync">
         <DataAnnotationsValidator />
         <ValidationSummary />
-        <label>Name <InputText @bind-Value="_form.Name" /></label>
-        <label>Deviations <InputTextArea rows="8" @bind-Value="_form.Deviations" /></label>
-        <label>Visual observability
+        <label>
+            Rules name
+            <InputText @bind-Value="_form.Name" />
+            <span class="field-hint">A short label for this reusable set.</span>
+        </label>
+        <label>
+            Call me out when…
+            <InputTextArea rows="8" @bind-Value="_form.Deviations" />
+            <span class="field-hint">Add one camera-visible behavior per line, such as “I use my phone” or “I leave the desk.”</span>
+        </label>
+        <label>
+            How visible is this to the camera?
             <InputSelect @bind-Value="_form.Observability">
-                @foreach (var value in Enum.GetValues<VisualObservability>()) { <option value="@value">@value</option> }
+                <option value="@VisualObservability.Observable">Clearly visible</option>
+                <option value="@VisualObservability.PartiallyObservable">Sometimes visible</option>
+                <option value="@VisualObservability.NotObservable">Usually not visible</option>
             </InputSelect>
         </label>
-        <button type="submit">Save profile</button>
+        <button type="submit">Save accountability rules</button>
     </EditForm>
-    @if (_message is not null) { <p class="notice">@_message</p> }
-    @if (_error is not null) { <p class="error">@_error</p> }
+    @if (_message is not null)
+    {
+        <p class="notice">@_message</p>
+    }
+    @if (_error is not null)
+    {
+        <p class="error" role="alert">@_error</p>
+    }
 </section>
 
 @code {
+    [Parameter, SupplyParameterFromQuery(Name = "returnTo")]
+    public string? ReturnTo { get; set; }
+
     private readonly ProfileForm _form = new();
     private string? _message;
     private string? _error;
@@ -30,30 +52,56 @@
     protected override async Task OnInitializedAsync()
     {
         var profile = await Workflow.GetProfileAsync();
-        if (profile is null) return;
+        if (profile is null)
+        {
+            return;
+        }
+
         _form.Name = profile.Name;
-        _form.Deviations = string.Join(Environment.NewLine, profile.Deviations.Select(x => x.Description));
+        _form.Deviations = string.Join(
+            Environment.NewLine,
+            profile.Deviations.Select(x => x.Description));
+        _form.Observability = profile.Deviations.FirstOrDefault()?.Observability ??
+            VisualObservability.Observable;
     }
 
     private async Task SaveAsync()
     {
         try
         {
-            var deviations = _form.Deviations.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Select(x => new DeviationInput(x, _form.Observability)).ToArray();
+            var deviations = _form.Deviations
+                .Split(
+                    ['\r', '\n'],
+                    StringSplitOptions.RemoveEmptyEntries |
+                    StringSplitOptions.TrimEntries)
+                .Select(x => new DeviationInput(x, _form.Observability))
+                .ToArray();
             await Workflow.SaveProfileAsync(_form.Name, deviations);
-            _message = "Profile saved. Active Session Contracts retain their original snapshots.";
+            _message =
+                "Accountability rules saved. Existing session plans keep their original snapshots.";
             _error = null;
+
+            if (OnboardingReturnPath.Validate(ReturnTo) is { } destination)
+            {
+                Navigation.NavigateTo(destination);
+            }
         }
-        catch (Exception exception) { _error = exception.Message; _message = null; }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+            _message = null;
+        }
     }
 
     private sealed class ProfileForm
     {
         [System.ComponentModel.DataAnnotations.Required]
-        public string Name { get; set; } = "Default";
+        public string Name { get; set; } = "My accountability rules";
+
         [System.ComponentModel.DataAnnotations.Required]
         public string Deviations { get; set; } = "";
-        public VisualObservability Observability { get; set; } = VisualObservability.Observable;
+
+        public VisualObservability Observability { get; set; } =
+            VisualObservability.Observable;
     }
 }

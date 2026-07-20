@@ -38,7 +38,6 @@ public sealed class VoiceRecoveryAdapterTests
         Assert.Equal("I need a smaller next step.", result.CapturedTranscript);
         Assert.Equal(
             [
-                "speak:opening",
                 "cue",
                 "capture",
                 "transcribe",
@@ -72,7 +71,7 @@ public sealed class VoiceRecoveryAdapterTests
         Assert.Null(result.CapturedTranscript);
         Assert.Equal(RecoveryOutcome.NoResponse, result.Proposal.Outcome);
         Assert.Null(result.Proposal.Transcript);
-        Assert.Equal(["speak:opening", "cue", "capture"], order);
+        Assert.Equal(["cue", "capture"], order);
         Assert.Equal(0, speechInput.CallCount);
         Assert.Equal(0, conversation.CallCount);
     }
@@ -179,14 +178,15 @@ public sealed class VoiceRecoveryAdapterTests
 
         Assert.Equal(VoiceRecoveryStage.Cue, result.Stage);
         Assert.Equal(0, microphone.CallCount);
-        Assert.Equal(["speak:opening", "cue"], order);
+        Assert.Equal(["cue"], order);
     }
 
     [Fact]
-    public async Task Opening_failure_is_reported_as_opening_and_never_activates_microphone()
+    public async Task Assistant_playback_failure_is_reported_after_microphone_response()
     {
         var order = new List<string>();
-        var microphone = new StubMicrophone(order, null);
+        var audio = new TrackingAudio(order);
+        var microphone = new StubMicrophone(order, audio);
         var speechOutput = new StubSpeechOutput(
             order,
             speakFailure: new RecoveryVoiceException(
@@ -194,17 +194,33 @@ public sealed class VoiceRecoveryAdapterTests
                 VoiceRecoveryStage.Playback));
         var adapter = Adapter(
             microphone,
-            new StubSpeechInput(order, "not used"),
+            new StubSpeechInput(order, "I will get back to work."),
             speechOutput,
-            new CallbackRecoveryPort(
-                _ => throw new InvalidOperationException("Not expected.")));
+            new CallbackRecoveryPort(request =>
+            {
+                order.Add("conversation");
+                return new RecoveryProposalResponse(
+                    Proposal(
+                        request,
+                        RecoveryOutcome.UnclearResponse,
+                        "Get back to the next action."));
+            }));
 
         var result = Assert.IsType<VoiceRecoveryFailureResponse>(
             await adapter.ProposeAsync(Request()));
 
-        Assert.Equal(VoiceRecoveryStage.Opening, result.Stage);
-        Assert.Equal(0, microphone.CallCount);
-        Assert.Equal(["speak:opening"], order);
+        Assert.Equal(VoiceRecoveryStage.Playback, result.Stage);
+        Assert.Equal(1, microphone.CallCount);
+        Assert.Equal(
+            [
+                "cue",
+                "capture",
+                "transcribe",
+                "audio.dispose",
+                "conversation",
+                "speak:assistant"
+            ],
+            order);
     }
 
     private static VoiceRecoveryAdapter Adapter(
@@ -369,16 +385,12 @@ public sealed class VoiceRecoveryAdapterTests
         Exception? cueFailure = null,
         Exception? speakFailure = null) : ISpeechOutputPort
     {
-        private int _speakCount;
-
         public Task SpeakAsync(
             string text,
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            order.Add(_speakCount++ == 0
-                ? "speak:opening"
-                : "speak:assistant");
+            order.Add("speak:assistant");
             return speakFailure is null
                 ? Task.CompletedTask
                 : Task.FromException(speakFailure);

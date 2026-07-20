@@ -1,6 +1,7 @@
 @page "/sessions/{SessionId:guid}/live"
 @implements IAsyncDisposable
 @inject ISessionRuntimePresentation SessionUi
+@using GoalKeeper.Application.Recovery
 
 <PageTitle>@(_view?.IsTerminal == true ? "Session complete" : "Focus session") · GoalKeeper</PageTitle>
 
@@ -14,7 +15,7 @@ else if (_view is null)
         <p class="eyebrow">Session unavailable</p>
         <h1>This live session isn’t connected.</h1>
         <p>@_error</p>
-        <a class="button" href="/">Return to goals</a>
+        <a class="button" href="/">Return Home</a>
     </section>
 }
 else if (_view.IsTerminal)
@@ -30,7 +31,7 @@ else if (_view.IsTerminal)
         </div>
         <div class="actions centered">
             <a class="button" href="@($"/sessions/{SessionId}/review")">Optional session review</a>
-            <a class="button secondary" href="/">Return to goals</a>
+            <a class="button secondary" href="/">Return Home</a>
         </div>
     </section>
 }
@@ -108,33 +109,108 @@ else
         {
             <section class="recovery-panel" aria-labelledby="recovery-title">
                 <span class="recovery-kicker">Timer paused · Private check-in</span>
-                <h2 id="recovery-title">Let’s get the context right.</h2>
-                <p>@_view.RecoveryPrompt</p>
-                <EditForm Model="_recovery" OnValidSubmit="SubmitRecoveryAsync">
-                    <DataAnnotationsValidator />
-                    <ValidationSummary />
-                    <label for="recovery-response">What happened?</label>
-                    <InputTextArea id="recovery-response"
-                                   rows="4"
-                                   autocomplete="off"
-                                   @bind-Value="_recovery.Response" />
-                    <span class="field-hint">Use your own words. Text remains available when voice is not configured.</span>
-                    <button type="submit" disabled="@_commandInFlight">Send response</button>
-                </EditForm>
-                @if (_view.CanSubmitVoiceRecovery)
+                <h2 id="recovery-title">Reality check</h2>
+                @if (_view.CanReplayRecoveryOpening)
                 {
-                    <div class="voice-response">
-                        <span class="field-hint">Voice activates the microphone only for this check-in, discards raw audio after processing, and may send bounded audio and transcript data to the configured provider.</span>
+                    <div class="recovery-audio">
+                        <div>
+                            <strong>GoalKeeper said this aloud.</strong>
+                            <span>
+                                @(_view.AutomaticRecoveryMicrophoneActive
+                                    ? "Listening now."
+                                    : _view.AutomaticRecoveryVoiceInProgress
+                                        ? "The microphone opens automatically after the question."
+                                        : "Opening complete.")
+                            </span>
+                        </div>
                         <button type="button"
                                 class="button secondary"
+                                disabled="@(_commandInFlight || _view.AutomaticRecoveryVoiceInProgress)"
+                                @onclick="ReplayRecoveryOpeningAsync">
+                            Replay audio
+                        </button>
+                    </div>
+                    @if (_view.RecoveryAudioNotice is not null)
+                    {
+                        <p class="recovery-audio-notice" role="status">
+                            @_view.RecoveryAudioNotice
+                        </p>
+                    }
+                    <details class="recovery-transcript">
+                        <summary>Missed it? Read the check-in</summary>
+                        <p class="accountability-message">@_view.RecoveryAccountabilityMessage</p>
+                        <p class="recovery-question">@RecoveryOpeningPrompt.CheckInQuestion</p>
+                    </details>
+                }
+                else
+                {
+                    <p class="recovery-audio-notice">
+                        Audio is unavailable, so the check-in is shown below.
+                    </p>
+                    <p class="accountability-message">@_view.RecoveryAccountabilityMessage</p>
+                    <p class="recovery-question">@RecoveryOpeningPrompt.CheckInQuestion</p>
+                }
+                @if (_view.AutomaticRecoveryVoiceInProgress)
+                {
+                    <div class="voice-response active-listening" role="status">
+                        <div>
+                            <strong>
+                                @(_view.AutomaticRecoveryMicrophoneActive
+                                    ? "Listening now"
+                                    : "GoalKeeper is speaking")
+                            </strong>
+                            <span class="field-hint">
+                                @(_view.AutomaticRecoveryMicrophoneActive
+                                    ? "MIC active. Answer out loud; capture stops automatically."
+                                    : "The microphone will open as soon as the question finishes.")
+                            </span>
+                        </div>
+                        <span class="listening-indicator" aria-hidden="true"></span>
+                    </div>
+                }
+                else if (_view.CanSubmitVoiceRecovery)
+                {
+                    <div class="voice-response">
+                        <div>
+                            <strong>Voice response available</strong>
+                            <span class="field-hint">Use this if automatic listening failed or you want to answer again.</span>
+                        </div>
+                        <button type="button"
                                 disabled="@_commandInFlight"
                                 @onclick="SubmitVoiceRecoveryAsync">
                             @(_voiceInFlight
                                 ? "Voice response in progress…"
-                                : "Respond by voice")
+                                : "Try voice again")
                         </button>
                     </div>
                 }
+                <details class="text-response"
+                         open="@(!_view.AutomaticRecoveryVoiceInProgress && !_view.CanSubmitVoiceRecovery)">
+                    <summary>
+                        @(_view.AutomaticRecoveryVoiceInProgress || _view.CanSubmitVoiceRecovery
+                            ? "Prefer to type instead?"
+                            : "Respond in writing")
+                    </summary>
+                    <EditForm Model="_recovery" OnValidSubmit="SubmitRecoveryAsync">
+                        <DataAnnotationsValidator />
+                        <ValidationSummary />
+                        <label for="recovery-response">Why aren’t you focused right now?</label>
+                        <InputTextArea id="recovery-response"
+                                       rows="4"
+                                       autocomplete="off"
+                                       disabled="@_view.AutomaticRecoveryVoiceInProgress"
+                                       @bind-Value="_recovery.Response" />
+                        <span class="field-hint">Answer in your own words.</span>
+                        <button type="submit"
+                                disabled="@(_commandInFlight || _view.AutomaticRecoveryVoiceInProgress)">
+                            Send response
+                        </button>
+                    </EditForm>
+                </details>
+                <details class="recovery-evidence">
+                    <summary>Why GoalKeeper interrupted</summary>
+                    <p>@_view.RecoveryEvidenceContext</p>
+                </details>
             </section>
         }
         else if (_view.CanReturnToRecovery)
@@ -238,13 +314,19 @@ else
         _ => "health paused"
     };
 
-    private string MicrophoneLabel => _voiceInFlight
-        ? "VOICE active"
+    private string MicrophoneLabel => _view?.AutomaticRecoveryMicrophoneActive == true
+        ? "MIC active"
+        : _view?.AutomaticRecoveryVoiceInProgress == true
+            ? "MIC next"
+            : _voiceInFlight
+                ? "MIC active"
         : _view?.CanSubmitVoiceRecovery == true
             ? "MIC ready"
             : "MIC off";
 
-    private string MicrophoneClass => _voiceInFlight
+    private string MicrophoneClass =>
+        _view?.AutomaticRecoveryMicrophoneActive == true ||
+        _voiceInFlight
         ? "health warning"
         : "health muted";
 
@@ -353,6 +435,10 @@ else
             _voiceInFlight = false;
         }
     }
+
+    private async Task ReplayRecoveryOpeningAsync() =>
+        await RunCommandAsync(token =>
+            SessionUi.ReplayRecoveryOpeningAsync(SessionId, token));
 
     private async Task RunCommandAsync(
         Func<CancellationToken, Task<LiveSessionPageView?>> command)

@@ -729,10 +729,28 @@ public sealed class SessionRuntimeController(
                 Positive(window.EndsAt - now),
             _ => null
         };
-        var recoveryPrompt = session.Runtime.ActiveIntervention?.Evaluation.Rationale ??
-            (session.State == FocusSessionState.RecoveryCheckIn
-                ? "GoalKeeper noticed a pattern that may not match this session. What happened?"
-                : null);
+        Guid? recoveryInterventionId = null;
+        string? recoveryAccountabilityMessage = null;
+        string? recoveryEvidenceContext = null;
+        if (session.State == FocusSessionState.RecoveryCheckIn &&
+            session.Runtime.ActiveIntervention is { } active &&
+            active.Evaluation.EvidenceEpisode is { } evidence)
+        {
+            recoveryInterventionId = active.Id;
+            var deviationDescription =
+                evidence.Deviation.ListedDeviationId is { } listed
+                    ? contract.Deviations.Single(value => value.Id == listed).Description
+                    : evidence.Deviation.UnlistedDescription!;
+            recoveryAccountabilityMessage =
+                AccountabilityMessageFactory.Resolve(
+                    active.Id,
+                    contract.GoalTitle,
+                    deviationDescription,
+                    active.Evaluation.AccountabilityMessage);
+            recoveryEvidenceContext =
+                $"{CreateEvidenceSummary(evidence.Observations.Count)} " +
+                "GoalKeeper is interpreting limited camera observations, so this interruption may be wrong.";
+        }
         var terminal = session.State is
             FocusSessionState.Fulfilled or FocusSessionState.EndedEarly;
         return new(
@@ -746,7 +764,9 @@ public sealed class SessionRuntimeController(
             session.Runtime.ProjectedEndUtc,
             status.HasActiveWorker && !terminal,
             status.TechnicalFailure,
-            recoveryPrompt,
+            recoveryInterventionId,
+            recoveryAccountabilityMessage,
+            recoveryEvidenceContext,
             session.State is FocusSessionState.Focusing or FocusSessionState.RecoveryWindow,
             !terminal,
             session.State == FocusSessionState.RecoveryCheckIn,
@@ -1005,6 +1025,12 @@ public sealed class SessionRuntimeController(
             throw new DomainRuleViolationException(
                 "A Recovery request requires a Reasoning rationale.");
         var evidenceSummary = CreateEvidenceSummary(evidence.Observations.Count);
+        var accountabilityMessage =
+            AccountabilityMessageFactory.Resolve(
+                active.Id,
+                contract.GoalTitle,
+                deviationDescription,
+                active.Evaluation.AccountabilityMessage);
         var turns = persistedTurns.Select(RecoveryTurnPersistence.FromView).ToArray();
         var options = new RecoveryRequestOptions(
             view.Runtime.Policy.MaximumCoachingTurns);
@@ -1050,7 +1076,8 @@ public sealed class SessionRuntimeController(
                 deviationDescription,
                 evidenceSummary,
                 rationale,
-                active.AdmittedAtUtc),
+                active.AdmittedAtUtc,
+                accountabilityMessage),
             new(
                 active.AdmittedAt - active.DisputedDuration,
                 active.AdmittedAt),
