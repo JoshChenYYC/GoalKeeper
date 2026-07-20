@@ -49,6 +49,7 @@ public sealed record SessionLiveStatus(
     DateTimeOffset ProjectedEndUtc,
     bool MonitoringActive,
     string? TechnicalFailure,
+    Guid? RecoveryInterventionId,
     string? RecoveryAccountabilityMessage,
     string? RecoveryEvidenceContext,
     bool CanCompleteGoal,

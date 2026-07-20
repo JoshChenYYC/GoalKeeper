@@ -187,8 +187,17 @@ public sealed class FakeDrivenJourneyAcceptanceTests
             $"/sessions/{journey.SessionId}/live");
 
         Assert.True(recovery!.CanSubmitVoiceRecovery);
+        Assert.True(recovery.CanReplayRecoveryOpening);
         Assert.Contains("Respond by voice", recoveryHtml);
+        Assert.Contains("Replay audio", recoveryHtml);
+        Assert.Contains("Missed it? Read the check-in", recoveryHtml);
         Assert.Equal(0, journey.Voice.CallCount);
+        Assert.Single(journey.Speech.Spoken);
+        Assert.Equal(
+            RecoveryOpeningPrompt.Create(
+                recovery.RecoveryAccountabilityMessage!),
+            journey.Speech.Spoken[0]);
+        Assert.Equal(0, journey.Speech.ListeningCueCount);
 
         var recommitted = await journey.Presentation.SubmitVoiceRecoveryAsync(
             journey.SessionId);
@@ -246,6 +255,8 @@ public sealed class FakeDrivenJourneyAcceptanceTests
         public PostSessionPresentation PostSession { get; }
 
         public AcceptanceVoiceRecoveryPort Voice => _factory.Voice;
+
+        public AcceptanceSpeechOutput Speech => _factory.Speech;
 
         public static async Task<AcceptanceJourney> StartAsync(
             bool voiceEnabled = false)
@@ -360,6 +371,8 @@ public sealed class FakeDrivenJourneyAcceptanceTests
 
         public AcceptanceVoiceRecoveryPort Voice { get; } = new();
 
+        public AcceptanceSpeechOutput Speech { get; } = new();
+
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.UseSetting("GoalKeeper:DataRoot", DataRoot);
@@ -391,6 +404,8 @@ public sealed class FakeDrivenJourneyAcceptanceTests
                 {
                     services.RemoveAll<IVoiceRecoveryPort>();
                     services.AddSingleton<IVoiceRecoveryPort>(Voice);
+                    services.RemoveAll<ISpeechOutputPort>();
+                    services.AddSingleton<ISpeechOutputPort>(Speech);
                 }
             });
         }
@@ -504,6 +519,30 @@ public sealed class FakeDrivenJourneyAcceptanceTests
                             RecoverySchemaVersions.V1,
                             TimeSpan.Zero,
                             $"voice-recovery-{Guid.NewGuid():N}"))));
+        }
+    }
+
+    public sealed class AcceptanceSpeechOutput : ISpeechOutputPort
+    {
+        public List<string> Spoken { get; } = [];
+
+        public int ListeningCueCount { get; private set; }
+
+        public Task SpeakAsync(
+            string text,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Spoken.Add(text);
+            return Task.CompletedTask;
+        }
+
+        public Task PlayListeningCueAsync(
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ListeningCueCount++;
+            return Task.CompletedTask;
         }
     }
 

@@ -32,26 +32,25 @@ public sealed class VoiceRecoveryContractTests
     }
 
     [Fact]
-    public void Opening_prompt_discloses_ai_voice_and_expresses_uncertainty()
+    public void Opening_prompt_discloses_ai_voice_and_speaks_only_accountability_line()
     {
         var request = RecoveryTestData.Request();
 
         var prompt = RecoveryOpeningPrompt.Create(request);
 
-        Assert.StartsWith("This is an AI-generated voice.", prompt);
-        Assert.Contains(request.Intervention.AccountabilityMessage!, prompt);
-        Assert.Contains("limited camera observations", prompt);
-        Assert.Contains("This interpretation may be wrong", prompt);
-        Assert.Contains("about 2 minutes", prompt);
-        Assert.Contains(request.Intervention.DeviationDescription, prompt);
-        Assert.Contains(request.Intervention.EvidenceSummary, prompt);
+        Assert.Equal(
+            $"This is an AI-generated voice. {request.Intervention.AccountabilityMessage}",
+            prompt);
+        Assert.DoesNotContain("limited camera observations", prompt);
+        Assert.DoesNotContain("This interpretation may be wrong", prompt);
+        Assert.DoesNotContain(request.Intervention.DeviationDescription, prompt);
+        Assert.DoesNotContain(request.Intervention.EvidenceSummary, prompt);
         Assert.DoesNotContain(request.Intervention.Rationale, prompt);
-        Assert.EndsWith("What happened?", prompt);
         Assert.True(prompt.Length <= RecoveryLimits.MaximumResponseLength);
     }
 
     [Fact]
-    public void Opening_prompt_bounds_each_provider_supplied_context_field()
+    public void Opening_prompt_falls_back_without_speaking_provider_context()
     {
         var request = RecoveryTestData.Request();
         var longValue = new string('x', RecoveryLimits.MaximumSummaryLength);
@@ -76,8 +75,16 @@ public sealed class VoiceRecoveryContractTests
 
         var prompt = RecoveryOpeningPrompt.Create(request);
 
+        Assert.StartsWith("This is an AI-generated voice.", prompt);
+        Assert.DoesNotContain(longValue, prompt);
+        Assert.DoesNotContain(request.Intervention.DeviationDescription, prompt);
         Assert.True(prompt.Length <= RecoveryLimits.MaximumResponseLength);
-        Assert.Contains('…', prompt);
-        Assert.EndsWith("What happened?", prompt);
+    }
+
+    [Fact]
+    public void Opening_prompt_rejects_unsafe_arbitrary_text()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            RecoveryOpeningPrompt.Create("You are stupid."));
     }
 }

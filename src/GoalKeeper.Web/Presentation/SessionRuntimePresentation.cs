@@ -57,6 +57,8 @@ public sealed record LiveSessionPageView(
     string? TechnicalFailure,
     string? RecoveryAccountabilityMessage,
     string? RecoveryEvidenceContext,
+    bool CanReplayRecoveryOpening,
+    string? RecoveryAudioNotice,
     bool CanCompleteGoal,
     bool CanEndEarly,
     bool CanSubmitRecovery,
@@ -83,6 +85,7 @@ public interface ISessionRuntimePresentation
     Task<LiveSessionPageView?> EndEarlyAsync(Guid sessionId, CancellationToken cancellationToken = default);
     Task<LiveSessionPageView?> SubmitRecoveryAsync(Guid sessionId, string response, CancellationToken cancellationToken = default);
     Task<LiveSessionPageView?> SubmitVoiceRecoveryAsync(Guid sessionId, CancellationToken cancellationToken = default);
+    Task<LiveSessionPageView?> ReplayRecoveryOpeningAsync(Guid sessionId, CancellationToken cancellationToken = default);
     Task<LiveSessionPageView?> ReturnToRecoveryAsync(Guid sessionId, CancellationToken cancellationToken = default);
 }
 
@@ -91,15 +94,21 @@ public sealed class SessionRuntimePresentation(
     IGoalKeeperRepository repository,
     IOptions<SessionRuntimeUiOptions> options,
     IOptions<GoalKeeperOperationalOptions> operationalOptions,
-    IVoiceRecoveryPort? voiceRecovery = null) : ISessionRuntimePresentation, IDisposable
+    IVoiceRecoveryPort? voiceRecovery = null,
+    ISpeechOutputPort? speechOutput = null) : ISessionRuntimePresentation, IDisposable
 {
     private readonly SemaphoreSlim _commands = new(1, 1);
     private readonly SemaphoreSlim _preflightCommands = new(1, 1);
+    private readonly SemaphoreSlim _recoveryAudio = new(1, 1);
+    private readonly object _recoveryAudioSync = new();
     private readonly SessionRuntimeUiOptions _options = options.Value;
     private readonly bool _hostedProvidersEnabled =
         operationalOptions.Value.Providers.Mode == GoalKeeperProviderMode.Hosted;
     private PreflightPageView? _activePreflightView;
     private SessionStartDiagnostic? _lastSessionStart;
+    private Guid? _automaticRecoveryOpeningId;
+    private Guid? _failedRecoveryOpeningId;
+    private Task? _automaticRecoveryOpening;
 
     public async Task<PreflightPageView> GetPreflightAsync(
         Guid setupId,
@@ -305,6 +314,41 @@ public sealed class SessionRuntimePresentation(
         return await LoadLiveAsync(sessionId, cancellationToken);
     }
 
+    public async Task<LiveSessionPageView?> ReplayRecoveryOpeningAsync(
+        Guid sessionId,
+        CancellationToken cancellationToken = default)
+    {
+        if (speechOutput is null)
+        {
+            throw new InvalidOperationException("Recovery audio is not configured.");
+        }
+
+        await EnsureCurrentSessionAsync(sessionId, cancellationToken);
+        var live = await controller.GetLiveStatusAsync(sessionId, cancellationToken);
+        if (live is not
+            {
+                CanSubmitRecovery: true,
+                RecoveryInterventionId: { } interventionId,
+                RecoveryAccountabilityMessage: { } accountabilityMessage
+            })
+        {
+            throw new InvalidOperationException(
+                "There is no active Recovery opening to replay.");
+        }
+
+        await SpeakRecoveryOpeningAsync(accountabilityMessage, cancellationToken);
+        lock (_recoveryAudioSync)
+        {
+            if (_automaticRecoveryOpeningId == interventionId)
+            {
+                _failedRecoveryOpeningId = null;
+                _automaticRecoveryOpening = Task.CompletedTask;
+            }
+        }
+
+        return await LoadLiveAsync(sessionId, cancellationToken);
+    }
+
     public async Task<LiveSessionPageView?> ReturnToRecoveryAsync(
         Guid sessionId,
         CancellationToken cancellationToken = default)
@@ -361,6 +405,7 @@ public sealed class SessionRuntimePresentation(
             return null;
         }
 
+        var recoveryAudioNotice = await EnsureAutomaticRecoveryOpeningAsync(live);
         return new(
             live.SessionId,
             live.GoalTitle,
@@ -376,6 +421,10 @@ public sealed class SessionRuntimePresentation(
             live.TechnicalFailure,
             live.RecoveryAccountabilityMessage,
             live.RecoveryEvidenceContext,
+            live.CanSubmitRecovery &&
+            live.RecoveryAccountabilityMessage is not null &&
+            speechOutput is not null,
+            recoveryAudioNotice,
             live.CanCompleteGoal,
             live.CanEndEarly,
             live.CanSubmitRecovery,
@@ -386,6 +435,72 @@ public sealed class SessionRuntimePresentation(
             _lastSessionStart is { } diagnostic && diagnostic.SessionId == live.SessionId
                 ? diagnostic.Duration
                 : null);
+    }
+
+    private async Task<string?> EnsureAutomaticRecoveryOpeningAsync(
+        SessionLiveStatus live)
+    {
+        if (speechOutput is null ||
+            !live.CanSubmitRecovery ||
+            live.RecoveryInterventionId is not { } interventionId ||
+            live.RecoveryAccountabilityMessage is not { } accountabilityMessage)
+        {
+            return null;
+        }
+
+        Task playback;
+        lock (_recoveryAudioSync)
+        {
+            if (_automaticRecoveryOpeningId != interventionId)
+            {
+                _automaticRecoveryOpeningId = interventionId;
+                _failedRecoveryOpeningId = null;
+                _automaticRecoveryOpening = SpeakRecoveryOpeningAsync(
+                    accountabilityMessage,
+                    CancellationToken.None);
+            }
+
+            playback = _automaticRecoveryOpening ?? Task.CompletedTask;
+        }
+
+        try
+        {
+            await playback;
+        }
+        catch
+        {
+            lock (_recoveryAudioSync)
+            {
+                if (_automaticRecoveryOpeningId == interventionId)
+                {
+                    _failedRecoveryOpeningId = interventionId;
+                }
+            }
+        }
+
+        lock (_recoveryAudioSync)
+        {
+            return _failedRecoveryOpeningId == interventionId
+                ? "Audio playback did not start. Read the check-in below or try Replay audio."
+                : null;
+        }
+    }
+
+    private async Task SpeakRecoveryOpeningAsync(
+        string accountabilityMessage,
+        CancellationToken cancellationToken)
+    {
+        await _recoveryAudio.WaitAsync(cancellationToken);
+        try
+        {
+            await speechOutput!.SpeakAsync(
+                RecoveryOpeningPrompt.Create(accountabilityMessage),
+                cancellationToken);
+        }
+        finally
+        {
+            _recoveryAudio.Release();
+        }
     }
 
     private async Task<SessionSetupView> RequireReadySetupAsync(
@@ -495,6 +610,7 @@ public sealed class SessionRuntimePresentation(
     {
         _commands.Dispose();
         _preflightCommands.Dispose();
+        _recoveryAudio.Dispose();
     }
 
     private sealed record SessionStartDiagnostic(Guid SessionId, TimeSpan Duration);

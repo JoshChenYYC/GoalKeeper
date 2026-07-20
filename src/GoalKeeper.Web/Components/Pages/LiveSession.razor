@@ -109,7 +109,38 @@ else
             <section class="recovery-panel" aria-labelledby="recovery-title">
                 <span class="recovery-kicker">Timer paused · Private check-in</span>
                 <h2 id="recovery-title">Reality check</h2>
-                <p class="accountability-message">@_view.RecoveryAccountabilityMessage</p>
+                @if (_view.CanReplayRecoveryOpening)
+                {
+                    <div class="recovery-audio">
+                        <div>
+                            <strong>GoalKeeper said this aloud.</strong>
+                            <span>The microphone is still off.</span>
+                        </div>
+                        <button type="button"
+                                class="button secondary"
+                                disabled="@_commandInFlight"
+                                @onclick="ReplayRecoveryOpeningAsync">
+                            Replay audio
+                        </button>
+                    </div>
+                    @if (_view.RecoveryAudioNotice is not null)
+                    {
+                        <p class="recovery-audio-notice" role="status">
+                            @_view.RecoveryAudioNotice
+                        </p>
+                    }
+                    <details class="recovery-transcript">
+                        <summary>Missed it? Read the check-in</summary>
+                        <p class="accountability-message">@_view.RecoveryAccountabilityMessage</p>
+                    </details>
+                }
+                else
+                {
+                    <p class="recovery-audio-notice">
+                        Audio is unavailable, so the check-in is shown below.
+                    </p>
+                    <p class="accountability-message">@_view.RecoveryAccountabilityMessage</p>
+                }
                 <details class="recovery-evidence">
                     <summary>Why GoalKeeper interrupted</summary>
                     <p>@_view.RecoveryEvidenceContext</p>
@@ -357,6 +388,10 @@ else
             _voiceInFlight = false;
         }
     }
+
+    private async Task ReplayRecoveryOpeningAsync() =>
+        await RunCommandAsync(token =>
+            SessionUi.ReplayRecoveryOpeningAsync(SessionId, token));
 
     private async Task RunCommandAsync(
         Func<CancellationToken, Task<LiveSessionPageView?>> command)

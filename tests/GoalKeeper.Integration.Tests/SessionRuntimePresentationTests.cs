@@ -241,6 +241,7 @@ public sealed class SessionRuntimePresentationTests
         Assert.False(live.CanSubmitRecovery);
         Assert.False(live.CanReturnToRecovery);
         Assert.False(live.IsTerminal);
+        Assert.Null(live.RecoveryInterventionId);
     }
 
     [Fact]
@@ -259,6 +260,7 @@ public sealed class SessionRuntimePresentationTests
         Assert.Equal(TimeSpan.FromMinutes(5), live.StateCountdown);
         Assert.Null(live.RecoveryAccountabilityMessage);
         Assert.Null(live.RecoveryEvidenceContext);
+        Assert.Null(live.RecoveryInterventionId);
         Assert.False(live.CanCompleteGoal);
         Assert.False(live.CanSubmitRecovery);
         Assert.False(live.CanReturnToRecovery);
@@ -296,6 +298,7 @@ public sealed class SessionRuntimePresentationTests
         Assert.NotNull(live.StateCountdown);
         Assert.Null(live.RecoveryAccountabilityMessage);
         Assert.Null(live.RecoveryEvidenceContext);
+        Assert.Null(live.RecoveryInterventionId);
         Assert.False(live.CanCompleteGoal);
         Assert.False(live.CanSubmitRecovery);
         Assert.False(live.CanReturnToRecovery);
@@ -378,6 +381,7 @@ public sealed class SessionRuntimePresentationTests
         Assert.Null(checkIn.StateCountdown);
         Assert.NotNull(checkIn.RecoveryAccountabilityMessage);
         Assert.NotNull(checkIn.RecoveryEvidenceContext);
+        Assert.NotNull(checkIn.RecoveryInterventionId);
 
         var next = outcome == RecoveryOutcome.NoResponse
             ? await SubmitNoResponseAsync(harness, sessionId)
@@ -403,6 +407,66 @@ public sealed class SessionRuntimePresentationTests
             Assert.True(next.CanReturnToRecovery);
             Assert.Equal(TimeSpan.FromMinutes(1), next.StateCountdown);
         }
+    }
+
+    [Fact]
+    public async Task Recovery_opening_plays_once_automatically_and_can_be_replayed()
+    {
+        var speech = new RecordingSpeechOutput();
+        await using var harness = await PresentationHarness.CreateAsync(
+            recoveryOutcome: RecoveryOutcome.Recommit,
+            speechOutput: speech);
+        var sessionId = await harness.StartAsync();
+        await harness.PublishBehaviorObservationAsync(sessionId);
+
+        var first = await harness.Presentation.GetLiveAsync(sessionId);
+        var second = await harness.Presentation.GetLiveAsync(sessionId);
+
+        Assert.NotNull(first);
+        Assert.NotNull(second);
+        Assert.True(first.CanReplayRecoveryOpening);
+        Assert.Null(first.RecoveryAudioNotice);
+        Assert.Single(speech.Spoken);
+        Assert.Equal(
+            RecoveryOpeningPrompt.Create(first.RecoveryAccountabilityMessage!),
+            speech.Spoken[0]);
+        Assert.Equal(0, speech.ListeningCueCount);
+
+        var replayed = await harness.Presentation.ReplayRecoveryOpeningAsync(
+            sessionId);
+
+        Assert.NotNull(replayed);
+        Assert.Equal(2, speech.Spoken.Count);
+        Assert.All(
+            speech.Spoken,
+            spoken => Assert.Equal(speech.Spoken[0], spoken));
+        Assert.Equal(0, speech.ListeningCueCount);
+    }
+
+    [Fact]
+    public async Task Automatic_audio_failure_keeps_recovery_available_without_retry_loop()
+    {
+        var speech = new RecordingSpeechOutput(
+            new RecoveryVoiceException(
+                RecoveryFailureCategory.ProviderUnavailable,
+                VoiceRecoveryStage.Playback));
+        await using var harness = await PresentationHarness.CreateAsync(
+            recoveryOutcome: RecoveryOutcome.Recommit,
+            speechOutput: speech);
+        var sessionId = await harness.StartAsync();
+        await harness.PublishBehaviorObservationAsync(sessionId);
+
+        var first = await harness.Presentation.GetLiveAsync(sessionId);
+        var second = await harness.Presentation.GetLiveAsync(sessionId);
+
+        Assert.NotNull(first);
+        Assert.NotNull(second);
+        Assert.True(first.CanSubmitRecovery);
+        Assert.True(first.CanReplayRecoveryOpening);
+        Assert.Contains("Audio playback did not start", first.RecoveryAudioNotice);
+        Assert.Equal(first.RecoveryAudioNotice, second.RecoveryAudioNotice);
+        Assert.Single(speech.Spoken);
+        Assert.Equal(0, speech.ListeningCueCount);
     }
 
     private static async Task<LiveSessionPageView?> SubmitNoResponseAsync(
@@ -541,7 +605,8 @@ public sealed class SessionRuntimePresentationTests
             bool withScheduledBreak = false,
             IReadOnlyList<PerceptionFakeStep>? preflightSteps = null,
             RecoveryOutcome? recoveryOutcome = null,
-            GoalKeeperProviderMode providerMode = GoalKeeperProviderMode.Hosted)
+            GoalKeeperProviderMode providerMode = GoalKeeperProviderMode.Hosted,
+            ISpeechOutputPort? speechOutput = null)
         {
             var root = Path.Combine(
                 Path.GetTempPath(),
@@ -637,7 +702,8 @@ public sealed class SessionRuntimePresentationTests
                     {
                         Mode = providerMode
                     }
-                }));
+                }),
+                speechOutput: speechOutput);
             return new(
                 root,
                 repository,
@@ -729,6 +795,33 @@ public sealed class SessionRuntimePresentationTests
         {
             _ = delay;
             return Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+        }
+    }
+
+    private sealed class RecordingSpeechOutput(
+        Exception? failure = null) : ISpeechOutputPort
+    {
+        public List<string> Spoken { get; } = [];
+
+        public int ListeningCueCount { get; private set; }
+
+        public Task SpeakAsync(
+            string text,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Spoken.Add(text);
+            return failure is null
+                ? Task.CompletedTask
+                : Task.FromException(failure);
+        }
+
+        public Task PlayListeningCueAsync(
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ListeningCueCount++;
+            return Task.CompletedTask;
         }
     }
 

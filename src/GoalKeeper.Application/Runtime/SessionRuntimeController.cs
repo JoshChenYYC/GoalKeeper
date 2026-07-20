@@ -729,12 +729,14 @@ public sealed class SessionRuntimeController(
                 Positive(window.EndsAt - now),
             _ => null
         };
+        Guid? recoveryInterventionId = null;
         string? recoveryAccountabilityMessage = null;
         string? recoveryEvidenceContext = null;
         if (session.State == FocusSessionState.RecoveryCheckIn &&
             session.Runtime.ActiveIntervention is { } active &&
             active.Evaluation.EvidenceEpisode is { } evidence)
         {
+            recoveryInterventionId = active.Id;
             var deviationDescription =
                 evidence.Deviation.ListedDeviationId is { } listed
                     ? contract.Deviations.Single(value => value.Id == listed).Description
@@ -762,6 +764,7 @@ public sealed class SessionRuntimeController(
             session.Runtime.ProjectedEndUtc,
             status.HasActiveWorker && !terminal,
             status.TechnicalFailure,
+            recoveryInterventionId,
             recoveryAccountabilityMessage,
             recoveryEvidenceContext,
             session.State is FocusSessionState.Focusing or FocusSessionState.RecoveryWindow,

@@ -21,18 +21,12 @@ public sealed class VoiceRecoveryAdapter(
     {
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
-        var stage = VoiceRecoveryStage.Opening;
+        var stage = VoiceRecoveryStage.Cue;
         var startedAtUtc = Later(clock.UtcNow, request.RequestedAtUtc);
         var startedAtMonotonic = clock.MonotonicNow;
 
         try
         {
-            await speechOutput.SpeakAsync(
-                    RecoveryOpeningPrompt.Create(request),
-                    cancellationToken)
-                .ConfigureAwait(false);
-
-            stage = VoiceRecoveryStage.Cue;
             await speechOutput.PlayListeningCueAsync(cancellationToken)
                 .ConfigureAwait(false);
 
@@ -106,9 +100,7 @@ public sealed class VoiceRecoveryAdapter(
         catch (RecoveryVoiceException exception)
         {
             return new VoiceRecoveryFailureResponse(
-                stage == VoiceRecoveryStage.Opening
-                    ? VoiceRecoveryStage.Opening
-                    : exception.Stage,
+                exception.Stage,
                 exception.Category);
         }
         catch

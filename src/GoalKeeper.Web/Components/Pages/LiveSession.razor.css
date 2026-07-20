@@ -217,7 +217,7 @@
     line-height: 1.55;
 }
 
-.recovery-panel > .accountability-message {
+.accountability-message {
     max-width: 32ch;
     margin: .75rem 0 1rem;
     color: #272316;
@@ -226,6 +226,50 @@
     font-weight: 600;
     letter-spacing: -.025em;
     line-height: 1.16;
+}
+
+.recovery-audio {
+    max-width: 44rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin: 1rem 0;
+    padding: .9rem 1rem;
+    border: 1px solid #cbbd8f;
+    border-radius: 8px;
+    background: #fffdf7;
+}
+
+.recovery-audio > div {
+    display: grid;
+    gap: .15rem;
+}
+
+.recovery-audio span,
+.recovery-audio-notice {
+    color: #6c675a;
+    font-size: .82rem;
+}
+
+.recovery-panel > .recovery-audio-notice {
+    margin-bottom: .8rem;
+}
+
+.recovery-transcript {
+    max-width: 44rem;
+    margin-bottom: 1rem;
+}
+
+.recovery-transcript summary {
+    cursor: pointer;
+    color: #5a4b25;
+    font-size: .82rem;
+    font-weight: 780;
+}
+
+.recovery-transcript .accountability-message {
+    margin: .8rem 0 0;
 }
 
 .recovery-evidence {
