@@ -29,8 +29,17 @@ else
             <DataAnnotationsValidator />
             <ValidationSummary />
             <label>Focus time (minutes) <InputNumber @bind-Value="_form.TargetMinutes" /></label>
-            <label>Planned breaks <span class="hint">one offset:duration pair per line, in minutes</span>
-                <InputTextArea rows="4" @bind-Value="_form.Breaks" />
+            <label>
+                Planned breaks <span class="hint">optional</span>
+                <span id="break-schedule-help" class="field-hint">
+                    Write when the break should start, then how long it should last, separated by a colon.
+                    For example, <strong>25:5</strong> means “after 25 minutes of focus, take a 5-minute break.”
+                    Add each additional break on a new line.
+                </span>
+                <InputTextArea rows="4"
+                               placeholder="@BreakSchedulePlaceholder"
+                               aria-describedby="break-schedule-help"
+                               @bind-Value="_form.Breaks" />
             </label>
             <label>What may GoalKeeper call out?
                 <InputSelect @bind-Value="_form.ReasoningMode">
@@ -114,7 +123,9 @@ else
             {
                 var parts = line.Split(':', StringSplitOptions.TrimEntries);
                 if (parts.Length != 2 || !double.TryParse(parts[0], out var offset) || !double.TryParse(parts[1], out var duration))
-                    throw new DomainRuleViolationException($"Invalid Scheduled Break: {line}");
+                    throw new DomainRuleViolationException(
+                        $"GoalKeeper couldn't read the planned break \"{line}\". " +
+                        "Use start:length in minutes—for example, 25:5 starts a 5-minute break after 25 minutes of focus.");
                 return new ScheduledBreakInput(TimeSpan.FromMinutes(offset), TimeSpan.FromMinutes(duration));
             }).ToArray();
     }
@@ -127,4 +138,7 @@ else
         public ReasoningMode ReasoningMode { get; set; }
         public Sensitivity Sensitivity { get; set; }
     }
+
+    private static string BreakSchedulePlaceholder =>
+        $"25:5{Environment.NewLine}55:10";
 }

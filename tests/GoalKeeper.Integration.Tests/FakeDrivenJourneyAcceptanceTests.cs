@@ -29,6 +29,12 @@ public sealed class FakeDrivenJourneyAcceptanceTests
         Assert.Contains(
             "<h1>Set up this focus session</h1>",
             await journey.HtmlAsync($"/sessions/setup/{journey.GoalId}"));
+        var setupHtml = await journey.HtmlAsync(
+            $"/sessions/setup/{journey.GoalId}");
+        Assert.Contains(
+            "after 25 minutes of focus, take a 5-minute break",
+            setupHtml);
+        Assert.DoesNotContain("offset:duration", setupHtml);
         var readyHtml = await journey.HtmlAsync(
             $"/sessions/{journey.SetupId}/ready");
         Assert.Contains("One check before focus.", readyHtml);

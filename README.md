@@ -106,7 +106,7 @@ The observability choices are:
 Select **Start session** on an active Goal card, then configure:
 
 - **Focus time:** active-focus minutes, from 1 to 1,440. Planned breaks and recovery time do not count toward this target.
-- **Planned breaks:** optional `offset:duration` pairs, one per line, expressed in minutes. For example, `25:5` starts a five-minute break after 25 minutes of active focus. Offsets must be positive, unique, and earlier than the focus target.
+- **Planned breaks:** optional. Write when the break should start, then how long it should last, separated by a colon. For example, `25:5` means “after 25 minutes of focus, take a five-minute break.” Add each additional break on a new line. Break start times must be positive, unique, and earlier than the focus target.
 - **What may GoalKeeper call out?:** limit interventions to the accountability-rules snapshot or permit a clearly identified unlisted behavior when evidence suggests it conflicts with the Goal.
 - **How quickly should GoalKeeper step in?:** choose sooner, balanced, or only with stronger evidence.
 
