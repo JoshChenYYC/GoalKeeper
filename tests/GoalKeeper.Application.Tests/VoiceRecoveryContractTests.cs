@@ -32,17 +32,19 @@ public sealed class VoiceRecoveryContractTests
     }
 
     [Fact]
-    public void Opening_prompt_discloses_ai_voice_then_asks_why()
+    public void Opening_prompt_starts_with_accountability_then_asks_why()
     {
         var request = RecoveryTestData.Request();
 
         var prompt = RecoveryOpeningPrompt.Create(request);
 
         Assert.Equal(
-            $"This is an AI-generated voice. {request.Intervention.AccountabilityMessage} " +
+            $"{request.Intervention.AccountabilityMessage} " +
             RecoveryOpeningPrompt.CheckInQuestion,
             prompt);
+        Assert.StartsWith(request.Intervention.AccountabilityMessage, prompt);
         Assert.EndsWith("why aren't you focused right now?", prompt);
+        Assert.DoesNotContain("AI-generated voice", prompt);
         Assert.DoesNotContain("limited camera observations", prompt);
         Assert.DoesNotContain("This interpretation may be wrong", prompt);
         Assert.DoesNotContain(request.Intervention.DeviationDescription, prompt);
@@ -76,8 +78,11 @@ public sealed class VoiceRecoveryContractTests
             request.Options);
 
         var prompt = RecoveryOpeningPrompt.Create(request);
+        var expectedAccountability =
+            AccountabilityMessageFactory.Resolve(request);
 
-        Assert.StartsWith("This is an AI-generated voice.", prompt);
+        Assert.StartsWith(expectedAccountability, prompt);
+        Assert.DoesNotContain("AI-generated voice", prompt);
         Assert.DoesNotContain(longValue, prompt);
         Assert.DoesNotContain(request.Intervention.DeviationDescription, prompt);
         Assert.True(prompt.Length <= RecoveryLimits.MaximumResponseLength);

@@ -23,7 +23,6 @@ public static class RecoveryOpeningPrompt
         }
 
         return string.Concat(
-            "This is an AI-generated voice. ",
             accountabilityMessage,
             " ",
             CheckInQuestion);
