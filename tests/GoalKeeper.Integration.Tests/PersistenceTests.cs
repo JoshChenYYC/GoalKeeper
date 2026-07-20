@@ -94,6 +94,21 @@ public sealed class PersistenceTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Speech_settings_default_and_persist_across_store_instances()
+    {
+        var store = new EfSpeechSettingsStore(_factory);
+        var workflow = new SpeechSettingsWorkflow(store);
+
+        Assert.Equal(SpeechSettingsView.Default, await workflow.GetAsync());
+
+        await workflow.SaveAsync("gpt-4o-mini-tts", "cedar");
+
+        var reloaded = await new EfSpeechSettingsStore(_factory).GetAsync();
+        Assert.Equal("gpt-4o-mini-tts", reloaded.SpeechModel);
+        Assert.Equal("cedar", reloaded.Voice);
+    }
+
+    [Fact]
     public async Task Storage_usage_aggregates_snapshot_bytes()
     {
         await using var db = await _factory.CreateDbContextAsync();

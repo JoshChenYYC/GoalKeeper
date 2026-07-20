@@ -57,7 +57,11 @@ public static class RuntimeServiceCollectionExtensions
 
         services.TryAddSingleton<IClock, SystemClock>();
         services.AddSingleton<IGoalKeeperRepository, EfGoalKeeperRepository>();
+        services.AddSingleton<ISpeechSettingsStore, EfSpeechSettingsStore>();
+        services.AddSingleton<ISpeechSettingsProvider>(static provider =>
+            provider.GetRequiredService<ISpeechSettingsStore>());
         services.AddScoped<SetupWorkflow>();
+        services.AddScoped<SpeechSettingsWorkflow>();
         services.AddScoped<SessionInterruptionRecovery>();
         services.AddSingleton<ISnapshotArtifactStore>(
             static provider => provider.GetRequiredService<SessionArtifactStore>());

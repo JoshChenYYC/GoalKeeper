@@ -36,11 +36,51 @@ public sealed class WebHostTests
             Assert.True(response.IsSuccessStatusCode, html);
             Assert.Contains(">Home</h1>", html);
             Assert.Contains("Accountability rules", html);
+            Assert.Contains("Settings", html);
             Assert.True(File.Exists(Path.Combine(dataRoot, "goalkeeper.db")));
         }
         finally
         {
             if (Directory.Exists(dataRoot)) Directory.Delete(dataRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Settings_route_exposes_speech_model_voice_and_disclosure()
+    {
+        var dataRoot = Path.Combine(
+            Path.GetTempPath(),
+            $"goalkeeper-settings-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dataRoot);
+        try
+        {
+            using var factory = new WebApplicationFactory<Program>()
+                .WithWebHostBuilder(builder =>
+                {
+                    builder.UseSetting("GoalKeeper:DataRoot", dataRoot);
+                    builder.ConfigureLogging(logging =>
+                        logging.ClearProviders());
+                });
+            using var client = factory.CreateClient();
+
+            var response = await client.GetAsync("/settings");
+            var html = await response.Content.ReadAsStringAsync();
+
+            Assert.True(response.IsSuccessStatusCode, html);
+            Assert.Contains(">Settings</h1>", html);
+            Assert.Contains("Speech model", html);
+            Assert.Contains("GPT-4o mini TTS", html);
+            Assert.Contains("TTS-1 HD", html);
+            Assert.Contains("Voice", html);
+            Assert.Contains("AI-generated", html);
+            Assert.Contains("Save voice settings", html);
+        }
+        finally
+        {
+            if (Directory.Exists(dataRoot))
+            {
+                Directory.Delete(dataRoot, recursive: true);
+            }
         }
     }
 

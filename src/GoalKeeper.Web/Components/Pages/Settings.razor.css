@@ -1,0 +1,12 @@
+.settings-panel {
+    max-width: 42rem;
+}
+
+.settings-panel form {
+    margin-top: 1.25rem;
+}
+
+.voice-disclosure {
+    margin: .25rem 0 0;
+    font-size: .88rem;
+}

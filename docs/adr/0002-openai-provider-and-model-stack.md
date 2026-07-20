@@ -1,6 +1,6 @@
 # Use OpenAI for hosted perception, reasoning, and voice recovery
 
-**Status:** Accepted  
+**Status:** Accepted; Recovery text-to-speech selection amended by [ADR 0003](0003-user-configurable-speech-output.md)<br>
 **Decision date:** 2026-07-18  
 **Decision owner:** GK-002
 
@@ -35,7 +35,7 @@ server-side API-key authentication and these exact model IDs and API shapes:
 | Reasoning | OpenAI `gpt-5.6-sol` | Responses API, text input, strict JSON Schema, `reasoning.effort: medium`, `store: false`, no tools | Temporal evidence interpretation and deciding when not to intervene are the central quality risk. The current flagship model is worth the higher cost at the lower Reasoning cadence. |
 | Recovery speech-to-text | OpenAI `gpt-4o-transcribe` | Audio Transcriptions API | The check-in needs accurate short-form transcripts. The non-streaming request is compatible with bounded microphone capture and deterministic disposal of raw audio. |
 | Recovery conversation and outcome mapping | OpenAI `gpt-5.6-terra` | Responses API, strict JSON Schema, `reasoning.effort: low`, `store: false`, no tools | Recovery is bounded and latency-sensitive but still needs reliable natural-language interpretation. Terra balances quality, latency, and cost between Sol and Luna. |
-| Recovery text-to-speech | OpenAI `tts-1`, voice `coral` | Audio Speech API, streamed playback | TTS-1 remains a supported lower-latency speech model and preserves the accepted bounded prototype stack. The current guide recommends the newer `gpt-4o-mini-tts`; changing models requires a superseding decision and new live evidence. The application must tell the user that the voice is AI-generated. |
+| Recovery text-to-speech | OpenAI `tts-1`, voice `coral` baseline | Audio Speech API, streamed playback | TTS-1 and Coral remain the behavior-preserving defaults. ADR 0003 permits the user to choose from an allow-listed set of supported speech models and compatible built-in voices. The application must tell the user that the voice is AI-generated. |
 
 The model IDs above are aliases because OpenAI currently publishes no dated
 snapshots for the GPT-5.6 variants. Persist the provider-returned model ID with

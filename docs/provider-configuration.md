@@ -18,13 +18,21 @@ does not add a production provider adapter.
 | `GoalKeeper:Providers:Recovery:ConversationModel` | `GoalKeeper__Providers__Recovery__ConversationModel` | `gpt-5.6-terra` | No |
 | `GoalKeeper:Providers:Recovery:ReasoningEffort` | `GoalKeeper__Providers__Recovery__ReasoningEffort` | `low` | No |
 | `GoalKeeper:Providers:Recovery:TranscriptionModel` | `GoalKeeper__Providers__Recovery__TranscriptionModel` | `gpt-4o-transcribe` | No |
-| `GoalKeeper:Providers:Recovery:SpeechModel` | `GoalKeeper__Providers__Recovery__SpeechModel` | `tts-1` | No |
-| `GoalKeeper:Providers:Recovery:Voice` | `GoalKeeper__Providers__Recovery__Voice` | `coral` | No |
+| `GoalKeeper:Providers:Recovery:SpeechModel` | `GoalKeeper__Providers__Recovery__SpeechModel` | Host baseline `tts-1` | No |
+| `GoalKeeper:Providers:Recovery:Voice` | `GoalKeeper__Providers__Recovery__Voice` | Host baseline `coral` | No |
 | `GoalKeeper:DataRoot` | `GoalKeeper__DataRoot` | `%LocalAppData%\GoalKeeper` | No |
 
 `store: false` is a request invariant for every Responses API call. It is not a
 configuration switch because the core version has no feature that requires
 provider-side response storage.
+
+The two Recovery speech-output configuration values remain fixed host
+baselines and startup-validation inputs. The user-facing **Settings** page
+stores the active speech model and voice in the local application database and
+applies them to each new Audio Speech request without a restart. The accepted
+models, model-dependent voices, validation rules, and defaults are recorded in
+[ADR 0003](adr/0003-user-configurable-speech-output.md). Arbitrary model names,
+custom voice IDs, and incompatible model/voice pairs are rejected.
 
 The retained Python reference continues to use `OPENAI_API_KEY` and optionally
 `OPENAI_MODEL`. Its selected default is `gpt-5.6-luna`; `OPENAI_MODEL` exists
@@ -75,9 +83,10 @@ The host validates the complete provider options during startup:
 
 1. `Mode` is exactly `Disabled` or `Hosted`.
 2. `Hosted` requires a nonblank API key and an absolute HTTPS base URL.
-3. Every model, voice, image-detail, and reasoning-effort value is nonblank and
-   belongs to the accepted set in the table above. A deliberate model change
-   first requires a superseding ADR and new contract evidence.
+3. Every host model, voice, image-detail, and reasoning-effort value is nonblank
+   and belongs to the accepted host set in the table above. User-selected
+   speech output is separately allow-listed and compatibility-checked under
+   ADR 0003 before persistence and again before a provider request.
 4. `Disabled` does not read or validate credentials and registers only
    deterministic unavailable/fake boundaries; it never makes a network call.
 5. A 401/403 response is an authentication/configuration failure, never

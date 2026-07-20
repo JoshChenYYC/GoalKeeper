@@ -1,0 +1,103 @@
+@page "/settings"
+@inject SpeechSettingsWorkflow Workflow
+
+<PageTitle>Settings - GoalKeeper</PageTitle>
+<p class="eyebrow">Application settings</p>
+<h1>Settings</h1>
+<p class="lede">Choose how GoalKeeper sounds when it speaks during a recovery check-in.</p>
+
+<section class="panel settings-panel">
+    <h2>Voice output</h2>
+    <EditForm Model="_form" OnValidSubmit="SaveAsync">
+        <DataAnnotationsValidator />
+        <ValidationSummary />
+        <label>
+            Speech model
+            <InputSelect @bind-Value="_form.SpeechModel" @bind-Value:after="OnModelChanged">
+                @foreach (var model in SpeechSettingsCatalog.Models)
+                {
+                    <option value="@model.Id">@model.DisplayName - @model.Description</option>
+                }
+            </InputSelect>
+            <span class="field-hint">The model used to turn GoalKeeper's response into audio.</span>
+        </label>
+        <label>
+            Voice
+            <InputSelect @key="_form.SpeechModel" @bind-Value="_form.Voice">
+                @foreach (var voice in AvailableVoices)
+                {
+                    <option value="@voice.Id">@voice.DisplayName</option>
+                }
+            </InputSelect>
+            <span class="field-hint">The voice used for generated speech.</span>
+        </label>
+        <p class="alert technical voice-disclosure">
+            GoalKeeper's spoken voice is AI-generated and is not a human voice.
+        </p>
+        <button type="submit">Save voice settings</button>
+    </EditForm>
+    @if (_message is not null)
+    {
+        <p class="notice" role="status">@_message</p>
+    }
+    @if (_error is not null)
+    {
+        <p class="error alert" role="alert">@_error</p>
+    }
+</section>
+
+@code {
+    private readonly SettingsForm _form = new();
+    private string? _message;
+    private string? _error;
+
+    private IReadOnlyList<SpeechVoiceOption> AvailableVoices =>
+        SpeechSettingsCatalog.VoicesFor(_form.SpeechModel);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var settings = await Workflow.GetAsync();
+        _form.SpeechModel = settings.SpeechModel;
+        _form.Voice = settings.Voice;
+    }
+
+    private void OnModelChanged()
+    {
+        if (AvailableVoices.Any(x =>
+                string.Equals(x.Id, _form.Voice, StringComparison.Ordinal)))
+        {
+            return;
+        }
+
+        _form.Voice = AvailableVoices.First().Id;
+    }
+
+    private async Task SaveAsync()
+    {
+        try
+        {
+            var settings = await Workflow.SaveAsync(
+                _form.SpeechModel,
+                _form.Voice);
+            _form.SpeechModel = settings.SpeechModel;
+            _form.Voice = settings.Voice;
+            _message = "Voice settings saved. New speech will use these choices.";
+            _error = null;
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+            _message = null;
+        }
+    }
+
+    private sealed class SettingsForm
+    {
+        [System.ComponentModel.DataAnnotations.Required]
+        public string SpeechModel { get; set; } =
+            SpeechSettingsView.Default.SpeechModel;
+
+        [System.ComponentModel.DataAnnotations.Required]
+        public string Voice { get; set; } = SpeechSettingsView.Default.Voice;
+    }
+}

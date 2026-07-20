@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
+using GoalKeeper.Application;
 using GoalKeeper.Application.Recovery;
 using Microsoft.Extensions.Options;
 
@@ -16,13 +17,15 @@ public sealed class OpenAiSpeechOutputAdapter : ISpeechOutputPort
         new(24_000, 16, 1);
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IRecoveryAudioPlaybackSink _playback;
+    private readonly ISpeechSettingsProvider _speechSettings;
     private readonly OpenAiRecoveryAudioOptions _options;
     private readonly Uri _endpoint;
 
     public OpenAiSpeechOutputAdapter(
         IHttpClientFactory httpClientFactory,
         IRecoveryAudioPlaybackSink playback,
-        IOptions<OpenAiRecoveryAudioOptions> options)
+        IOptions<OpenAiRecoveryAudioOptions> options,
+        ISpeechSettingsProvider? speechSettings = null)
     {
         ArgumentNullException.ThrowIfNull(httpClientFactory);
         ArgumentNullException.ThrowIfNull(playback);
@@ -31,6 +34,9 @@ public sealed class OpenAiSpeechOutputAdapter : ISpeechOutputPort
         _options.Validate();
         _httpClientFactory = httpClientFactory;
         _playback = playback;
+        _speechSettings = speechSettings ??
+            new ConfiguredSpeechSettingsProvider(
+                new(_options.SpeechModel, _options.Voice));
         _endpoint = new(
             $"{_options.BaseUrl.AbsoluteUri.TrimEnd('/')}/audio/speech",
             UriKind.Absolute);
@@ -58,7 +64,19 @@ public sealed class OpenAiSpeechOutputAdapter : ISpeechOutputPort
 
         try
         {
-            using var request = CreateRequest(text);
+            var speechSettings = await _speechSettings.GetAsync(timeout.Token)
+                .ConfigureAwait(false);
+            if (!SpeechSettingsCatalog.IsSupported(
+                    speechSettings.SpeechModel,
+                    speechSettings.Voice))
+            {
+                throw Failure(
+                    VoiceRecoveryStage.Playback,
+                    RecoveryFailureCategory.InvalidResponse,
+                    "The saved speech model or voice is unsupported.");
+            }
+
+            using var request = CreateRequest(text, speechSettings);
             using var response = await httpClient.SendAsync(
                     request,
                     HttpCompletionOption.ResponseHeadersRead,
@@ -170,14 +188,16 @@ public sealed class OpenAiSpeechOutputAdapter : ISpeechOutputPort
         }
     }
 
-    private HttpRequestMessage CreateRequest(string text)
+    private HttpRequestMessage CreateRequest(
+        string text,
+        SpeechSettingsView settings)
     {
         var request = new HttpRequestMessage(HttpMethod.Post, _endpoint)
         {
             Content = JsonContent.Create(new
             {
-                model = _options.SpeechModel,
-                voice = _options.Voice,
+                model = settings.SpeechModel,
+                voice = settings.Voice,
                 input = text,
                 response_format = "pcm"
             })
@@ -261,4 +281,16 @@ public sealed class OpenAiSpeechOutputAdapter : ISpeechOutputPort
         string message,
         Exception? innerException = null) =>
         new(category, stage, message, innerException);
+
+    private sealed class ConfiguredSpeechSettingsProvider(
+        SpeechSettingsView settings) : ISpeechSettingsProvider
+    {
+        public Task<SpeechSettingsView> GetAsync(
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(settings);
+        }
+
+    }
 }

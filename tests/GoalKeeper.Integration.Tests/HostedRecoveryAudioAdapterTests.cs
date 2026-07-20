@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using GoalKeeper.Application;
 using GoalKeeper.Application.Recovery;
 using GoalKeeper.Infrastructure.Recovery.Audio;
 using Microsoft.Extensions.Options;
@@ -230,6 +231,53 @@ public sealed class HostedRecoveryAudioAdapterTests
         Assert.DoesNotContain("sk-test-secret", request);
     }
 
+    [Fact]
+    public async Task Speech_uses_the_saved_model_and_voice_without_restart()
+    {
+        var handler = new RecordingHandler(
+            _ => PcmResponse([1, 2, 3, 4]));
+        var playback = new RecordingPlaybackSink();
+        var settings = new MutableSpeechSettingsStore(
+            new("gpt-4o-mini-tts", "cedar"));
+        var adapter = CreateSpeechOutput(
+            handler,
+            playback,
+            speechSettings: settings);
+
+        await adapter.SpeakAsync("First response.");
+        settings.Settings = new("tts-1-hd", "nova");
+        await adapter.SpeakAsync("Second response.");
+
+        var requests = handler.RequestBodies
+            .Select(Encoding.UTF8.GetString)
+            .ToArray();
+        Assert.Contains("\"model\":\"gpt-4o-mini-tts\"", requests[0]);
+        Assert.Contains("\"voice\":\"cedar\"", requests[0]);
+        Assert.Contains("\"model\":\"tts-1-hd\"", requests[1]);
+        Assert.Contains("\"voice\":\"nova\"", requests[1]);
+    }
+
+    [Fact]
+    public async Task Unsupported_saved_speech_settings_never_reach_provider()
+    {
+        var handler = new RecordingHandler(
+            _ => throw new InvalidOperationException(
+                "HTTP was not expected."));
+        var adapter = CreateSpeechOutput(
+            handler,
+            new RecordingPlaybackSink(),
+            speechSettings: new MutableSpeechSettingsStore(
+                new("tts-1", "marin")));
+
+        var exception = await Assert.ThrowsAsync<RecoveryVoiceException>(
+            () => adapter.SpeakAsync("A short safe response."));
+
+        Assert.Equal(
+            RecoveryFailureCategory.InvalidResponse,
+            exception.Category);
+        Assert.Empty(handler.RequestBodies);
+    }
+
     [Theory]
     [InlineData("", "audio/pcm")]
     [InlineData("x", "audio/pcm")]
@@ -334,14 +382,16 @@ public sealed class HostedRecoveryAudioAdapterTests
     private static OpenAiSpeechOutputAdapter CreateSpeechOutput(
         HttpMessageHandler handler,
         IRecoveryAudioPlaybackSink playback,
-        Action<OpenAiRecoveryAudioOptions>? configure = null)
+        Action<OpenAiRecoveryAudioOptions>? configure = null,
+        ISpeechSettingsProvider? speechSettings = null)
     {
         var options = AudioOptions();
         configure?.Invoke(options);
         return new(
             new TestHttpClientFactory(handler),
             playback,
-            Microsoft.Extensions.Options.Options.Create(options));
+            Microsoft.Extensions.Options.Options.Create(options),
+            speechSettings);
     }
 
     private static OpenAiRecoveryAudioOptions AudioOptions() =>
@@ -555,6 +605,28 @@ public sealed class HostedRecoveryAudioAdapterTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             CueCount++;
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class MutableSpeechSettingsStore(
+        SpeechSettingsView settings) : ISpeechSettingsStore
+    {
+        public SpeechSettingsView Settings { get; set; } = settings;
+
+        public Task<SpeechSettingsView> GetAsync(
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(Settings);
+        }
+
+        public Task SaveAsync(
+            SpeechSettingsView updatedSettings,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Settings = updatedSettings;
             return Task.CompletedTask;
         }
     }

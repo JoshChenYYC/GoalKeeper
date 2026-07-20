@@ -12,6 +12,7 @@ The primary application is a .NET 10 interactive-server Blazor web app. The Pyth
 - Separates image perception from temporal reasoning about whether to intervene.
 - Pauses active-focus time for scheduled breaks, recovery check-ins, and sustained monitoring outages.
 - Supports typed recovery responses and, in Hosted mode, bounded voice responses.
+- Lets the user choose the supported speech model and voice used for generated check-ins.
 - Never treats a camera, network, or provider failure as evidence of user behavior.
 
 ## Requirements
@@ -101,7 +102,13 @@ The observability choices are:
 - `PartiallyObservable`: the camera may provide useful but incomplete evidence.
 - `NotObservable`: the behavior is unlikely to be reliably judged from room images.
 
-### 3. Prepare the Session Contract
+### 3. Choose voice output
+
+Open **Settings** in the top navigation to choose the speech model and its compatible voice. GoalKeeper stores these choices locally and uses them for new generated speech without an application restart. The default remains `tts-1` with `coral`.
+
+The available speech models are GPT-4o mini TTS, TTS-1, and TTS-1 HD. The Voice list updates to show only voices supported by the selected model. GoalKeeper discloses in the UI that all generated speech is AI-generated and not a human voice.
+
+### 4. Prepare the Session Contract
 
 Select **Start session** on an active Goal card, then configure:
 
@@ -112,7 +119,7 @@ Select **Start session** on an active Goal card, then configure:
 
 Select **Lock session plan and continue**. After confirmation, the contract cannot be changed. A future session for the same Goal is prefilled from its most recent contract and creates a new immutable snapshot when confirmed.
 
-### 4. Complete camera preflight
+### 5. Complete camera preflight
 
 1. Select **Begin camera preflight**.
 2. Sit where you plan to focus with your face and workspace comfortably visible.
@@ -123,7 +130,7 @@ Select **Lock session plan and continue**. After confirmation, the contract cann
 
 Preflight requires exactly one visible person and an adequate image. The microphone is never used during preflight. **Cancel setup** releases the camera and returns Home without starting a Focus Session.
 
-### 5. Work through a live session
+### 6. Work through a live session
 
 The live page shows authoritative active-focus time, projected completion, camera status, microphone status, and the current session state.
 
@@ -136,7 +143,7 @@ The live page shows authoritative active-focus time, projected completion, camer
 
 The target is active-focus time, not wall-clock time, so breaks, accepted deviation intervals, and recovery interactions can move the projected end later.
 
-### 6. Review and manage history
+### 7. Review and manage history
 
 After a fulfilled or early-ended session, choose **Optional session review**. You can record:
 
@@ -159,7 +166,7 @@ By default, GoalKeeper stores data under:
 └── sessions\<session-id>\snapshots\*.jpg
 ```
 
-The SQLite database is authoritative. It includes Goals, immutable contracts, session state, observations, reasoning records, Recovery transcripts, and optional reviews. Captured JPEG snapshots are retained in session-owned directories.
+The SQLite database is authoritative. It includes Goals, immutable contracts, session state, observations, reasoning records, Recovery transcripts, voice-output settings, and optional reviews. Captured JPEG snapshots are retained in session-owned directories.
 
 In Hosted mode:
 
