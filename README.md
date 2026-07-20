@@ -134,7 +134,7 @@ Preflight requires exactly one visible person and an adequate image. The microph
 
 The live page shows authoritative active-focus time, projected completion, camera status, microphone status, and the current session state.
 
-- GoalKeeper normally captures one still image every 10 seconds. It does not capture video, the screen, keyboard input, or operating-system activity.
+- GoalKeeper normally captures one still image every 3 seconds. It does not capture video, the screen, keyboard input, or operating-system activity.
 - Scheduled breaks begin and end automatically. The focus timer and behavioral evidence are paused during a break.
 - If monitoring briefly fails, GoalKeeper retries and does not count the failure as behavioral evidence. After the configured grace period, the focus timer pauses until monitoring recovers.
 - If accumulated evidence justifies an intervention, the focus timer pauses for a private **Reality check**. The tough accountability line is generated with the Reasoning decision, persisted locally, and shown identically in text and voice; evidence and uncertainty remain available underneath.
@@ -206,7 +206,7 @@ GoalKeeper uses standard ASP.NET Core configuration precedence. Environment vari
 | Provider mode | `GoalKeeper__Providers__Mode` | `Disabled` |
 | Data directory | `GoalKeeper__DataRoot` | `%LocalAppData%\GoalKeeper` |
 | Camera device | `GoalKeeper__SessionUi__CameraDeviceIndex` | `0` |
-| Capture cadence | `GoalKeeper__SessionUi__CaptureCadence` | `00:00:10` |
+| Capture cadence | `GoalKeeper__SessionUi__CaptureCadence` | `00:00:03` |
 | Camera JPEG quality | `GoalKeeper__SessionUi__CameraJpegQuality` | `85` |
 | Monitoring outage grace | `GoalKeeper__SessionUi__TechnicalGracePeriod` | `00:00:30` |
 

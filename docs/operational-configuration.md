@@ -16,7 +16,7 @@ JSON file or command transcript.
 | `GoalKeeper:SessionUi:CameraDeviceIndex` | `0` | Non-negative |
 | `GoalKeeper:SessionUi:CameraWarmupFrameCount` | `8` | Non-negative |
 | `GoalKeeper:SessionUi:CameraJpegQuality` | `85` | 1–100 |
-| `GoalKeeper:SessionUi:CaptureCadence` | `00:00:10` | Positive |
+| `GoalKeeper:SessionUi:CaptureCadence` | `00:00:03` | Positive |
 | `GoalKeeper:SessionUi:ObservationFreshnessLimit` | `00:00:30` | Positive |
 | `GoalKeeper:SessionUi:TechnicalGracePeriod` | `00:00:30` | Non-negative |
 

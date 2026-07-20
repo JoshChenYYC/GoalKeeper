@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace GoalKeeper.Integration.Tests;
 
@@ -127,6 +128,12 @@ public sealed class WebHostTests
                 scope.ServiceProvider.GetRequiredService<ISessionRuntimeScheduler>());
             Assert.NotNull(factory.Services.GetRequiredService<MonitoringPipeline>());
             Assert.NotNull(factory.Services.GetRequiredService<ISessionRuntimePresentation>());
+            Assert.Equal(
+                TimeSpan.FromSeconds(3),
+                factory.Services
+                    .GetRequiredService<IOptions<SessionRuntimeUiOptions>>()
+                    .Value
+                    .CaptureCadence);
             Assert.Null(concreteRegistry.ActiveSessionId);
             Assert.Equal(
                 SessionRuntimeControllerState.Idle,

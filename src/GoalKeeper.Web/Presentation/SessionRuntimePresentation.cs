@@ -14,7 +14,7 @@ public sealed class SessionRuntimeUiOptions
     public int CameraDeviceIndex { get; set; }
     public int CameraWarmupFrameCount { get; set; } = 8;
     public int CameraJpegQuality { get; set; } = 85;
-    public TimeSpan CaptureCadence { get; set; } = TimeSpan.FromSeconds(10);
+    public TimeSpan CaptureCadence { get; set; } = TimeSpan.FromSeconds(3);
     public TimeSpan ObservationFreshnessLimit { get; set; } = TimeSpan.FromSeconds(30);
     public TimeSpan TechnicalGracePeriod { get; set; } = TimeSpan.FromSeconds(30);
 
