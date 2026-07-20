@@ -68,9 +68,9 @@ public sealed class FakeDrivenJourneyAcceptanceTests
             System.Text.Encodings.Web.HtmlEncoder.Default.Encode(
                 recoveryView!.RecoveryAccountabilityMessage!),
             recoveryHtml);
-        Assert.Contains("What happened?", recoveryHtml);
+        Assert.Contains("Respond in writing", recoveryHtml);
         Assert.Contains("MIC off", recoveryHtml);
-        Assert.DoesNotContain("Respond by voice", recoveryHtml);
+        Assert.DoesNotContain("Answer by voice", recoveryHtml);
 
         var recovery = await journey.Presentation.SubmitRecoveryAsync(
             journey.SessionId,
@@ -188,9 +188,17 @@ public sealed class FakeDrivenJourneyAcceptanceTests
 
         Assert.True(recovery!.CanSubmitVoiceRecovery);
         Assert.True(recovery.CanReplayRecoveryOpening);
-        Assert.Contains("Respond by voice", recoveryHtml);
+        Assert.Contains("Answer by voice", recoveryHtml);
+        Assert.Contains("Prefer to type?", recoveryHtml);
         Assert.Contains("Replay audio", recoveryHtml);
         Assert.Contains("Missed it? Read the check-in", recoveryHtml);
+        Assert.Contains(
+            System.Text.Encodings.Web.HtmlEncoder.Default.Encode(
+                RecoveryOpeningPrompt.CheckInQuestion),
+            recoveryHtml);
+        Assert.True(
+            recoveryHtml.IndexOf("Answer by voice", StringComparison.Ordinal) <
+            recoveryHtml.IndexOf("Prefer to type?", StringComparison.Ordinal));
         Assert.Equal(0, journey.Voice.CallCount);
         Assert.Single(journey.Speech.Spoken);
         Assert.Equal(

@@ -272,6 +272,12 @@
     margin: .8rem 0 0;
 }
 
+.recovery-question {
+    margin: 0;
+    color: #5a4b25;
+    font-weight: 750;
+}
+
 .recovery-evidence {
     max-width: 44rem;
     margin: 0 0 1.35rem;
@@ -299,15 +305,40 @@
 
 .voice-response {
     max-width: 44rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin: 1rem 0;
+    padding: 1rem;
+    border: 1px solid #bca967;
+    border-radius: 8px;
+    background: #fff8df;
+}
+
+.voice-response > div {
     display: grid;
-    gap: .75rem;
-    margin-top: 1rem;
-    padding-top: 1rem;
-    border-top: 1px solid #ded4b4;
+    gap: .25rem;
 }
 
 .voice-response .field-hint {
     margin: 0;
+}
+
+.text-response {
+    max-width: 44rem;
+    margin-bottom: 1.25rem;
+}
+
+.text-response summary {
+    cursor: pointer;
+    color: #5a4b25;
+    font-size: .86rem;
+    font-weight: 780;
+}
+
+.text-response form {
+    margin-top: 1rem;
 }
 
 .recovery-panel textarea:focus-visible,
@@ -494,6 +525,12 @@
         align-items: stretch;
     }
 
+    .voice-response {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .voice-response button,
     .confirm-strip button,
     .actions.centered .button {
         width: 100%;

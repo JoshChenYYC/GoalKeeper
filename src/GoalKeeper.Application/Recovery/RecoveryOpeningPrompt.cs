@@ -4,6 +4,9 @@ namespace GoalKeeper.Application.Recovery;
 
 public static class RecoveryOpeningPrompt
 {
+    public const string CheckInQuestion =
+        "So, why aren't you focused right now?";
+
     public static string Create(RecoveryRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -19,6 +22,10 @@ public static class RecoveryOpeningPrompt
                 nameof(accountabilityMessage));
         }
 
-        return $"This is an AI-generated voice. {accountabilityMessage}";
+        return string.Concat(
+            "This is an AI-generated voice. ",
+            accountabilityMessage,
+            " ",
+            CheckInQuestion);
     }
 }
