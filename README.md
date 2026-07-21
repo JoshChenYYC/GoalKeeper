@@ -15,6 +15,18 @@ The primary application is a .NET 10 interactive-server Blazor web app. The Pyth
 - Lets the user choose the supported speech model and voice used for generated check-ins.
 - Never treats a camera, network, or provider failure as evidence of user behavior.
 
+## How Codex and GPT-5.6 were used
+
+Codex was the project's collaborative engineering agent. The team used it to turn the product idea into an implementation plan, split work into reviewable tasks and branches, build the .NET/Blazor application and OpenAI adapters, write and update tests and documentation, investigate failures, and prepare changes for review and merge. The human team directed the product decisions, reviewed the behavior, supplied consent and credentials for live tests, and made the final merge decisions.
+
+GPT-5.6 powers GoalKeeper while a Hosted focus session is running:
+
+- `gpt-5.6-luna` converts selected webcam snapshots into bounded, structured observations. It reports visible facts and technical uncertainty rather than deciding whether the user is productive.
+- `gpt-5.6-luna` evaluates recent observations against the user's locked Goal and accountability rules. It either continues observing or proposes a Recovery Check-in with supporting evidence and a contextual accountability line.
+- `gpt-5.6-terra` interprets the user's short text or transcribed voice response during Recovery and proposes a bounded outcome such as recommitting, clarifying the behavior, requesting more coaching, or ending early.
+
+All GPT-5.6 outputs use versioned prompts and strict JSON schemas. The local controller validates every proposal and remains authoritative over session state; provider failures never count as evidence of bad behavior. See [Hosted provider configuration](docs/provider-configuration.md) and [Application logic](docs/application-logic.md) for the full boundary.
+
 ## Requirements
 
 - Windows 10 or later. The native camera and microphone adapters currently target Windows.
