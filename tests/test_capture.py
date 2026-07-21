@@ -503,7 +503,7 @@ class CaptureTests(unittest.TestCase):
         client = Mock()
         with tempfile.TemporaryDirectory() as directory:
             args = SimpleNamespace(output_dir=Path(directory), camera=0)
-            with (
+            with ( 
                 patch("capture.open_camera", return_value=camera),
                 patch(
                     "capture.run_camera_preflight",
